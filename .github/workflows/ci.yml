@@ -1,0 +1,279 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref so that new pushes don't queue up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Build ESP32-S3 firmware
+  # ---------------------------------------------------------------------------
+  build-firmware:
+    name: Build firmware (esp32-s3-devkitc-1)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-esp32-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-esp32-
+
+      - name: Build firmware
+        run: pio run -e esp32-s3-devkitc-1
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Native unit tests — clang++-18, ASan + UBSan + llvm-cov
+  # ---------------------------------------------------------------------------
+  native-tests:
+    name: Native tests (doctest + ASan/UBSan + llvm-cov)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Clang 18 and LLVM tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 llvm-18
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO (for doctest library download only)
+        run: pip install --upgrade platformio
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-native-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-native-
+
+      - name: Download doctest via PlatformIO
+        # PlatformIO native always uses g++ regardless of CC/CXX (builder/main.py
+        # calls env.Tool("g++") unconditionally). We use pio only to cache the
+        # doctest library in .pio/libdeps/native/, then compile with clang++-18.
+        run: pio test -e native || true
+
+      - name: Build & run tests with clang++-18 (ASan + UBSan + coverage)
+        env:
+          LLVM_PROFILE_FILE: default.profraw
+        run: |
+          # doctest lands in .pio/libdeps/native/ (project-local), NOT ~/.platformio
+          DOCTEST_INC=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/*" 2>/dev/null | head -1 | xargs dirname)
+          find src/core -name "*.cpp" > /tmp/srcs.txt 2>/dev/null || true
+          find test/test_skeleton -name "*.cpp" >> /tmp/srcs.txt
+          clang++-18 \
+            -std=c++17 \
+            -fno-exceptions -fno-rtti \
+            -fsanitize=address,undefined \
+            -fprofile-instr-generate -fcoverage-mapping \
+            -Wall -Wextra \
+            -I src -I include -I test/test_skeleton \
+            -I "$DOCTEST_INC" \
+            $(cat /tmp/srcs.txt) \
+            -o test_runner
+          ./test_runner -v
+
+      - name: Generate coverage report (llvm-cov)
+        run: |
+          llvm-profdata-18 merge -sparse default.profraw -o coverage.profdata
+          echo "=== Coverage summary ==="
+          llvm-cov-18 report ./test_runner \
+            -instr-profile=coverage.profdata \
+            $(find src/core -name "*.cpp" 2>/dev/null | tr '\n' ' ')
+          llvm-cov-18 show ./test_runner \
+            -instr-profile=coverage.profdata \
+            -format=html -output-dir=coverage/ \
+            $(find src/core -name "*.cpp" 2>/dev/null | tr '\n' ' ')
+
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Static analysis — pre-commit + clang-tidy + cppcheck
+  # ---------------------------------------------------------------------------
+  static-analysis:
+    name: Static analysis (pre-commit + clang-tidy + cppcheck)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install analysis tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 clang-tidy-18 cppcheck
+          # Unversioned symlinks so pre-commit hooks can call "clang-format" /
+          # "clang-tidy" without hardcoding a version suffix.
+          sudo ln -sf /usr/bin/clang-format-18 /usr/bin/clang-format
+          sudo ln -sf /usr/bin/clang-tidy-18   /usr/bin/clang-tidy
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO and pre-commit
+        run: pip install --upgrade platformio pre-commit
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-analysis-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-analysis-
+
+      - name: Run pre-commit (clang-format + secret scan + clang-tidy on src/)
+        # clang-format -i edits files in-place; pre-commit exits 1 if any file
+        # was changed (= formatting violation). Secret scan uses pygrep.
+        # clang-tidy runs only on src/(core|hal)/ — no-op while those are empty.
+        run: pre-commit run --all-files
+
+      - name: Run clang-tidy on src/core/
+        # Belt-and-suspenders pass with explicit include paths.
+        # Empty in Phase 0; becomes gating once files are added.
+        run: |
+          find src/core -name '*.cpp' -o -name '*.h' | \
+          xargs --no-run-if-empty \
+            clang-tidy-18 \
+              --config-file=.clang-tidy \
+              -- \
+              -std=c++17 \
+              -fno-exceptions \
+              -fno-rtti \
+              -I src \
+              -I include \
+              -I test/test_skeleton \
+              -DNATIVE_BUILD
+
+      - name: Run cppcheck on src/core/
+        run: |
+          cppcheck \
+            --enable=all \
+            --std=c++17 \
+            --suppress=missingIncludeSystem \
+            --suppress=unmatchedSuppression \
+            --error-exitcode=1 \
+            --inline-suppr \
+            -I src \
+            -I include \
+            src/core/ \
+          || true
+          # 'true' makes this non-fatal in Phase 0 while src/core/ is empty.
+          # Remove '|| true' once real source files exist.
+
+  # ---------------------------------------------------------------------------
+  # Job 4: SonarQube Cloud analysis
+  #
+  # Runs only when the SONAR_TOKEN secret is set (public repo: free tier).
+  #
+  # SonarQube Cloud free tier conditions as of 2025:
+  #   - Free for public (open-source) repositories.
+  #   - Analysis runs on SonarQube Cloud infrastructure; no self-hosted runner needed.
+  #   - Unlimited lines of code for public projects.
+  #   - Requires: create a project at sonarcloud.io, link your GitHub org/repo,
+  #     and add the SONAR_TOKEN secret to the repository settings.
+  #   - SONAR_PROJECT_KEY and SONAR_ORGANIZATION are set in sonar-project.properties
+  #     (committed to the repo — no secrets in that file).
+  #
+  # NOTE: Verify current limits at https://sonarcloud.io/pricing before relying
+  # on any specific limit; Sonar's free-tier terms change periodically.
+  # ---------------------------------------------------------------------------
+  sonar:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SONAR_TOKEN != '' }}
+    needs: [build-firmware, native-tests]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history needed for blame annotations and new-code detection.
+          fetch-depth: 0
+
+      - name: Install Clang 18 and LLVM tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang-18 llvm-18
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-sonar-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-sonar-
+
+      - name: Download doctest via PlatformIO
+        run: pio test -e native || true
+
+      - name: Build & run tests for Sonar coverage
+        # Same approach as native-tests job: bypass pio and compile with clang++
+        # directly to guarantee LLVM coverage instrumentation in the binary.
+        env:
+          LLVM_PROFILE_FILE: default.profraw
+        run: |
+          DOCTEST_INC=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/*" 2>/dev/null | head -1 | xargs dirname)
+          find src/core -name "*.cpp" > /tmp/srcs.txt 2>/dev/null || true
+          find test/test_skeleton -name "*.cpp" >> /tmp/srcs.txt
+          clang++-18 \
+            -std=c++17 \
+            -fno-exceptions -fno-rtti \
+            -fsanitize=address,undefined \
+            -fprofile-instr-generate -fcoverage-mapping \
+            -Wall -Wextra \
+            -I src -I include -I test/test_skeleton \
+            -I "$DOCTEST_INC" \
+            $(cat /tmp/srcs.txt) \
+            -o test_runner
+          ./test_runner -v
+
+      - name: Generate coverage data for Sonar
+        run: |
+          llvm-profdata-18 merge -sparse default.profraw -o coverage.profdata
+          llvm-cov-18 show ./test_runner \
+            -instr-profile=coverage.profdata \
+            -format=text \
+            $(find src/core -name "*.cpp" 2>/dev/null | tr '\n' ' ') \
+            > coverage.txt
+
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN:  ${{ secrets.SONAR_TOKEN }}

@@ -1,0 +1,53 @@
+root = true
+
+# ---- Default: all files ----
+[*]
+charset             = utf-8
+end_of_line         = lf
+insert_final_newline  = true
+trim_trailing_whitespace = true
+
+# ---- C / C++ ----
+[*.{c,cc,cpp,cxx,h,hh,hpp,hxx}]
+indent_style = space
+indent_size  = 4
+
+# ---- PlatformIO / CMake ----
+[*.ini]
+indent_style = space
+indent_size  = 4
+
+[CMakeLists.txt]
+indent_style = space
+indent_size  = 4
+
+[*.cmake]
+indent_style = space
+indent_size  = 4
+
+# ---- YAML (GitHub Actions, pre-commit config) ----
+[*.{yml,yaml}]
+indent_style = space
+indent_size  = 2
+
+# ---- JSON ----
+[*.json]
+indent_style = space
+indent_size  = 2
+
+# ---- Markdown ----
+[*.md]
+indent_style = space
+indent_size  = 2
+# Trailing spaces are significant in Markdown (line break) — don't trim.
+trim_trailing_whitespace = false
+
+# ---- Shell scripts ----
+[*.sh]
+indent_style = space
+indent_size  = 4
+
+# ---- Python ----
+[*.py]
+indent_style = space
+indent_size  = 4

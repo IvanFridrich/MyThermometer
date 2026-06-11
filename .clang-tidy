@@ -1,0 +1,90 @@
+---
+# .clang-tidy — static analysis profile for the ESP32-S3 Thermometer firmware.
+#
+# Philosophy:
+#   - Enable broad check families, then surgically disable those that conflict
+#     with our invariants (-fno-exceptions, -fno-rtti, link-time HAL seam,
+#     ETL containers, Arduino/ESP-IDF C-style APIs, Config.h constant policy).
+#   - Every disabled check has an inline justification comment.
+#   - "No new warnings" is a hard gate in CI.
+
+Checks: >
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  performance-*,
+  readability-*,
+  modernize-*,
+  misc-*,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-no-malloc,
+  -modernize-use-trailing-return-type,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -misc-non-private-member-variables-in-classes,
+  -cert-err58-cpp,
+  -cert-err60-cpp
+
+# Justifications for each disabled check:
+#
+# cppcoreguidelines-pro-type-reinterpret-cast
+#   ESP-IDF and Arduino APIs require reinterpret_cast at the driver boundary
+#   (e.g. SPI buffer casts, NimBLE callback data). Disabled only here; HAL
+#   fakes must not use it in domain code.
+#
+# cppcoreguidelines-avoid-magic-numbers / readability-magic-numbers
+#   All constants live in cfg:: (Config.h). The lint rule would fire on the
+#   Config.h definitions themselves, which is the canonical location.
+#
+# cppcoreguidelines-pro-bounds-pointer-arithmetic
+#   ETL containers expose raw-pointer iterators; Arduino String/buffer APIs
+#   use pointer arithmetic. Disable to avoid noise on well-understood patterns.
+#
+# cppcoreguidelines-pro-type-vararg
+#   Serial.printf / ESP_LOGx use varargs. Disable at the boundary; domain
+#   code must not use varargs directly.
+#
+# cppcoreguidelines-avoid-non-const-global-variables
+#   FreeRTOS task handles, queues and semaphores must be file-scope globals
+#   in the app layer. Disable for app/ only in practice (header filter below).
+#
+# cppcoreguidelines-no-malloc
+#   PlatformIO/ESP-IDF init code calls pvPortMalloc; not our code, but
+#   clang-tidy sees included headers. Disable globally, enforce via review.
+#
+# modernize-use-trailing-return-type
+#   Style choice: leading return type is clearer for embedded function pointers
+#   and FreeRTOS task signatures (void (*)(void*)).
+#
+# readability-identifier-length
+#   Short loop variables (i, j, x, y) and single-letter template params are
+#   idiomatic; the default minimum of 3 is too strict.
+#
+# misc-non-private-member-variables-in-classes
+#   HAL fake structs use public members as programmable test state setters.
+#
+# cert-err58-cpp / cert-err60-cpp
+#   These check for exceptions in static-storage-duration objects and
+#   exception-safe copy constructors. Both are irrelevant with -fno-exceptions.
+
+WarningsAsErrors: ""
+
+# Only analyse files under src/ and include/; skip .pio/ generated files.
+HeaderFilterRegex: "(src|include)/.*\\.(h|hpp)$"
+
+CheckOptions:
+  - key:   readability-braces-around-statements.ShortStatementLines
+    value: "2"
+  - key:   modernize-use-default-member-init.UseAssignment
+    value: "true"
+  - key:   cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value: "true"
+  - key:   cert-dcl16-c.NewSuffixes
+    value: "L;LL;LU;LLU"
+  - key:   readability-function-cognitive-complexity.Threshold
+    value: "25"
+...

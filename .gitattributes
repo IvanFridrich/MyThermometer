@@ -1,0 +1,10 @@
+# Normalize all text files to LF on commit (matches .editorconfig end_of_line = lf).
+# This prevents Windows from converting to CRLF and breaking clang-format in CI.
+* text=auto eol=lf
+
+# Explicit binary files — never touch line endings.
+*.profraw binary
+*.profdata binary
+*.exe     binary
+*.bin     binary
+*.elf     binary

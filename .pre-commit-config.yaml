@@ -1,0 +1,43 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        types_or: [c, c++]
+      - id: trailing-whitespace
+        types_or: [c, c++]
+
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format
+        language: system
+        entry: clang-format
+        args: [-i]
+        types_or: [c, c++]
+
+      - id: clang-tidy
+        name: clang-tidy (src/core + src/hal)
+        language: system
+        entry: clang-tidy
+        files: ^src/(core|hal)/
+        types_or: [c, c++]
+        args:
+          - --config-file=.clang-tidy
+          - --
+          - -std=c++17
+          - -fno-exceptions
+          - -fno-rtti
+          - -I
+          - src
+          - -I
+          - include
+          - -DNATIVE_BUILD
+
+      - id: no-hardcoded-secrets
+        name: No hardcoded secrets
+        language: pygrep
+        entry: 'define\s+(WIFI_SSID|WIFI_PASSWORD|SMTP_PASS|SMTP_USER|SMTP_HOST|RECIPIENT_EMAIL)\s+"[^"]{2,}"'
+        types_or: [c, c++]
+        exclude: ^include/secrets\.h\.example$

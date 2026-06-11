@@ -1,0 +1,36 @@
+---
+# .clang-format — enforced by CI and pre-commit hook.
+# Style deviations from LLVM base are documented inline.
+BasedOnStyle: LLVM
+
+# 4-space indent matches the project coding standard.
+IndentWidth: 4
+
+# 100 columns is wider than LLVM default (80) to accommodate ESP32 identifier lengths.
+ColumnLimit: 100
+
+# Short inline functions (e.g. getters) may stay on one line inside a class body.
+AllowShortFunctionsOnASingleLine: Inline
+
+# Sorted includes help IWYU and make diffs cleaner.
+SortIncludes: true
+
+# Keep pointer/reference attached to the type, not the name (int* p, not int *p).
+PointerAlignment: Left
+
+# Align trailing comments — improves readability of Config.h constant blocks.
+AlignTrailingComments: true
+
+# One empty line between top-level definitions.
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+
+# Namespace bodies are not indented (matches LLVM base).
+NamespaceIndentation: None
+
+# Braces on same line for functions/classes (Attach = LLVM default).
+BreakBeforeBraces: Attach
+
+# C++17 structured bindings and other modern constructs.
+Standard: c++17
+...

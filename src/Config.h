@@ -25,20 +25,20 @@ namespace cfg {
 // ----------------------------------------------------------------------------
 namespace pin {
 // --- DS18B20 (separate buses) ---
-constexpr uint8_t kOneWireInside  = 4; // inside sensor bus (fire detection)
-constexpr uint8_t kOneWireOutside = 5; // outside sensor bus
+constexpr uint8_t kOneWireInside  = 15; // inside sensor bus (fire detection)
+constexpr uint8_t kOneWireOutside = 14; // outside sensor bus
 
 // --- HD44780 2x8 LCD, 4-bit ---
-constexpr uint8_t kLcdRs = 15;
-constexpr uint8_t kLcdEn = 16;
-constexpr uint8_t kLcdD4 = 17;
+constexpr uint8_t kLcdRs = 42;
+constexpr uint8_t kLcdEn = 41;
+constexpr uint8_t kLcdD4 = 5;
 constexpr uint8_t kLcdD5 = 18;
-constexpr uint8_t kLcdD6 = 8;
-constexpr uint8_t kLcdD7 = 6; // GPIO 3 is a strapping pin on ESP32-S3 — use 6
+constexpr uint8_t kLcdD6 = 38; // GPIO 19 = USB D- on WROOM — use 38
+constexpr uint8_t kLcdD7 = 21;
 
 // --- PWM outputs ---
 constexpr uint8_t kBuzzer        = 9;  // passive buzzer (tone generation)
-constexpr uint8_t kLcdContrastV0 = 10; // PWM -> R + C low-pass -> LCD V0
+constexpr uint8_t kLcdContrastV0 = 13; // PWM -> R + C low-pass -> LCD V0
 constexpr uint8_t kLcdBacklight  = 11; // optional; set kBacklightControlled
 } // namespace pin
 

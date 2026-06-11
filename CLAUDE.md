@@ -57,7 +57,7 @@ tools/ble_monitor/  Python bleak skript
 
 | Oblast | Rozhodnutí |
 |--------|-----------|
-| LCD D7 | GPIO **6** (GPIO 3 je strapping pin na ESP32-S3 — zakázán) |
+| LCD D7 | GPIO **21**; RS=42, EN=41, D4=5, D5=18, D6=**38**, D7=21 (GPIO 19 = USB D− na WROOM — zakázán) |
 | HistoryRecord | **6 B/record** (bez `t_rel_s`); timestampy z pozice: `now − (count−1−i) × 600 s`; `__attribute__((packed))` |
 | Diff alarm flags | Jeden bit **DIFF_EXCEEDED**; směr se nepersistuje jako flag — JSON API ho vrátí jako pole |
 | BLE §6.2 | Beze změny; receiver si směr dopočítá z T_inner/T_outer |

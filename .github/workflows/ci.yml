@@ -11,6 +11,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+
 jobs:
   # ---------------------------------------------------------------------------
   # Job 1: Build ESP32-S3 firmware
@@ -191,9 +192,31 @@ jobs:
           # Remove '|| true' once real source files exist.
 
   # ---------------------------------------------------------------------------
-  # Job 4: SonarQube Cloud analysis
+  # Job 4: Gate — check whether SONAR_TOKEN secret is configured.
   #
-  # Runs only when the SONAR_TOKEN secret is set (public repo: free tier).
+  # job-level `if` expressions only have access to: github, needs, vars, inputs.
+  # secrets and env are NOT available there. The workaround is a small job that
+  # reads the secret inside a step (where secrets ARE available) and exposes the
+  # result as a job output; the sonar job then gates on needs.sonar-gate.outputs.
+  # ---------------------------------------------------------------------------
+  sonar-gate:
+    name: Check SONAR_TOKEN
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "enabled=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job 5: SonarQube Cloud analysis
+  #
+  # Runs only when SONAR_TOKEN secret is set (public repo: free tier).
   #
   # SonarQube Cloud free tier conditions as of 2025:
   #   - Free for public (open-source) repositories.
@@ -210,8 +233,8 @@ jobs:
   sonar:
     name: SonarQube Cloud
     runs-on: ubuntu-latest
-    if: ${{ secrets.SONAR_TOKEN != '' }}
-    needs: [build-firmware, native-tests]
+    needs: [build-firmware, native-tests, sonar-gate]
+    if: needs.sonar-gate.outputs.enabled == 'true'
 
     steps:
       - uses: actions/checkout@v4

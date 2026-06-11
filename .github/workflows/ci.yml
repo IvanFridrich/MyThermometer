@@ -83,7 +83,10 @@ jobs:
           LLVM_PROFILE_FILE: default.profraw
         run: |
           # doctest lands in .pio/libdeps/native/ (project-local), NOT ~/.platformio
-          DOCTEST_INC=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/*" 2>/dev/null | head -1 | xargs dirname)
+          # doctest.h lives at .pio/libdeps/native/doctest/doctest/doctest.h;
+          # we need the grandparent dir so that -I <dir> resolves <doctest/doctest.h>.
+          DOCTEST_H=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/doctest.h" 2>/dev/null | head -1)
+          DOCTEST_INC=$(dirname "$(dirname "$DOCTEST_H")")
           find src/core -name "*.cpp" > /tmp/srcs.txt 2>/dev/null || true
           find test/test_skeleton -name "*.cpp" >> /tmp/srcs.txt
           clang++-18 \
@@ -271,7 +274,10 @@ jobs:
         env:
           LLVM_PROFILE_FILE: default.profraw
         run: |
-          DOCTEST_INC=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/*" 2>/dev/null | head -1 | xargs dirname)
+          # doctest.h lives at .pio/libdeps/native/doctest/doctest/doctest.h;
+          # we need the grandparent dir so that -I <dir> resolves <doctest/doctest.h>.
+          DOCTEST_H=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/doctest.h" 2>/dev/null | head -1)
+          DOCTEST_INC=$(dirname "$(dirname "$DOCTEST_H")")
           find src/core -name "*.cpp" > /tmp/srcs.txt 2>/dev/null || true
           find test/test_skeleton -name "*.cpp" >> /tmp/srcs.txt
           clang++-18 \

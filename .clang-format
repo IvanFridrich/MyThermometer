@@ -19,7 +19,20 @@ SortIncludes: true
 PointerAlignment: Left
 
 # Align trailing comments — improves readability of Config.h constant blocks.
-AlignTrailingComments: true
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 0
+
+# Align = signs and declaration names in consecutive lines (same-group, no
+# crossing of blank lines).  Preserves the manual alignment in Config.h.
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignConsecutiveDeclarations:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
 
 # One empty line between top-level definitions.
 KeepEmptyLinesAtTheStartOfBlocks: false

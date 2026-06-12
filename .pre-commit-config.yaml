@@ -20,20 +20,16 @@ repos:
       - id: clang-tidy
         name: clang-tidy (src/core + src/hal)
         language: system
-        entry: clang-tidy
-        files: ^src/(core|hal)/
-        types_or: [c, c++]
-        args:
-          - --config-file=.clang-tidy
-          - --
-          - -std=c++17
-          - -fno-exceptions
-          - -fno-rtti
-          - -I
-          - src
-          - -I
-          - include
-          - -DNATIVE_BUILD
+        # pre-commit appends matched files AFTER all args, placing them after
+        # '--', so clang-tidy sees no source files and exits with USAGE.
+        # Fix: disable filename passing and find files explicitly so they land
+        # BEFORE '--' in the clang-tidy invocation.
+        entry: bash -c 'mapfile -t srcs < <(find src/core src/hal -name "*.cpp" 2>/dev/null);
+          [ ${#srcs[@]} -eq 0 ] && exit 0;
+          clang-tidy --config-file=.clang-tidy "${srcs[@]}" --
+          -std=c++17 -fno-exceptions -fno-rtti -I src -I include -DNATIVE_BUILD'
+        pass_filenames: false
+        always_run: true
 
       - id: no-hardcoded-secrets
         name: No hardcoded secrets

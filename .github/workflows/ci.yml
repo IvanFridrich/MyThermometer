@@ -174,21 +174,23 @@ jobs:
         # clang-tidy runs only on src/(core|hal)/ — no-op while those are empty.
         run: pre-commit run --all-files
 
-      - name: Run clang-tidy on src/core/
-        # Belt-and-suspenders pass with explicit include paths.
-        # Empty in Phase 0; becomes gating once files are added.
+      - name: Run clang-tidy on src/core/ and src/hal/
+        # Source files MUST come before '--' in clang-tidy's argument list.
+        # xargs appends files after all args (including after '--'), so we use
+        # mapfile + array expansion to put files in the correct position.
         run: |
-          find src/core -name '*.cpp' -o -name '*.h' | \
-          xargs --no-run-if-empty \
-            clang-tidy-18 \
-              --config-file=.clang-tidy \
-              -- \
-              -std=c++17 \
-              -fno-exceptions \
-              -fno-rtti \
-              -I src \
-              -I include \
-              -DNATIVE_BUILD
+          mapfile -t srcs < <(find src/core src/hal -name '*.cpp' 2>/dev/null)
+          if [ ${#srcs[@]} -eq 0 ]; then echo "No source files to check"; exit 0; fi
+          clang-tidy-18 \
+            --config-file=.clang-tidy \
+            "${srcs[@]}" \
+            -- \
+            -std=c++17 \
+            -fno-exceptions \
+            -fno-rtti \
+            -I src \
+            -I include \
+            -DNATIVE_BUILD
 
       - name: Run cppcheck on src/core/
         run: |

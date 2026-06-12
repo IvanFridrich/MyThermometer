@@ -43,6 +43,10 @@ class AlarmState {
     void reset();
 
   private:
+    void updateFire(const MeasurementSnapshot& snap, AlarmEdges& out);
+    void updateSensor(EventFlags anomalyFlags, AlarmEdges& out);
+    void updateDiff(const MeasurementSnapshot& snap, AlarmEdges& out);
+
     const ConfigModel& cfg_;
     bool               fire_{false};
     bool               diff_{false};

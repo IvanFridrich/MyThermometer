@@ -1,6 +1,9 @@
+#include "hal/wifi_hal.h"
+
+#include <cstdint>
 #include <cstring>
 
-#include "hal/wifi_hal.h"
+#include "result.h"
 
 Result<void> WifiHal::begin(const char* /*ssid*/, const char* /*password*/) {
     connected_ = true;

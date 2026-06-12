@@ -190,7 +190,8 @@ jobs:
             -fno-rtti \
             -I src \
             -I include \
-            -DNATIVE_BUILD
+            -DNATIVE_BUILD \
+            -D_CRT_SECURE_NO_WARNINGS
 
       - name: Run cppcheck on src/core/
         run: |

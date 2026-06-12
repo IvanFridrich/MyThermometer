@@ -1,10 +1,18 @@
 #include "hal/pwm.h"
 
-Result<void> Pwm::initContrast(uint8_t /*pin*/, uint8_t /*channel*/) {
+#include <cstdint>
+
+#include "result.h"
+
+Result<void> Pwm::initContrast(uint8_t pin, uint8_t channel) {
+    contrastPin_     = pin;
+    contrastChannel_ = channel;
     return Result<void>::ok();
 }
 
-Result<void> Pwm::initBuzzer(uint8_t /*pin*/, uint8_t /*channel*/) {
+Result<void> Pwm::initBuzzer(uint8_t pin, uint8_t channel) {
+    buzzerPin_     = pin;
+    buzzerChannel_ = channel;
     return Result<void>::ok();
 }
 

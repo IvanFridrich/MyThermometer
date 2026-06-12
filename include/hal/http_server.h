@@ -26,6 +26,7 @@ class HttpServer {
         HttpHandler handler{nullptr};
     };
 
+    bool         running() const { return running_; }
     uint8_t      routeCount() const { return routeCount_; }
     const Route& route(uint8_t i) const { return routes_[i]; }
 
@@ -33,6 +34,7 @@ class HttpServer {
     bool dispatchRequest(const char* uri, int method);
 
   private:
+    bool    running_{false};
     Route   routes_[cfg::net::kMaxHttpRoutes]{};
     uint8_t routeCount_{0};
 #endif

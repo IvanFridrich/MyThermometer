@@ -1,6 +1,10 @@
+#include "hal/nvs_store.h"
+
+#include <array>
+#include <cstdint>
 #include <cstring>
 
-#include "hal/nvs_store.h"
+#include "result.h"
 
 NvsStore::NvsStore(const char* /*ns*/) {}
 
@@ -28,7 +32,6 @@ const char* NvsStore::findEntry(const char* key, uint8_t& outLen) const {
 }
 
 bool NvsStore::storeEntry(const char* key, const uint8_t* data, uint8_t len) {
-    // Update existing entry.
     for (auto& e : entries_) {
         if (e.used && std::strcmp(e.key, key) == 0) {
             std::memcpy(e.data, data, len);
@@ -36,7 +39,6 @@ bool NvsStore::storeEntry(const char* key, const uint8_t* data, uint8_t len) {
             return true;
         }
     }
-    // Find empty slot.
     for (auto& e : entries_) {
         if (!e.used) {
             std::strncpy(e.key, key, sizeof(e.key) - 1U);
@@ -47,7 +49,7 @@ bool NvsStore::storeEntry(const char* key, const uint8_t* data, uint8_t len) {
             return true;
         }
     }
-    return false; // table full
+    return false;
 }
 
 void NvsStore::eraseAll() {
@@ -57,7 +59,7 @@ void NvsStore::eraseAll() {
 }
 
 // ---------------------------------------------------------------------------
-// Getters — return stored value or defaultVal if key not found.
+// Getters
 // ---------------------------------------------------------------------------
 
 Result<bool> NvsStore::getBool(const char* key, bool defaultVal) const {
@@ -120,7 +122,7 @@ Result<void> NvsStore::putBool(const char* key, bool val) {
     if (!open_) {
         return Result<void>::err(Status::kStorageErr);
     }
-    uint8_t raw = static_cast<uint8_t>(val);
+    const auto raw = static_cast<uint8_t>(val);
     if (!storeEntry(key, &raw, 1)) {
         return Result<void>::err(Status::kStorageErr);
     }
@@ -131,9 +133,9 @@ Result<void> NvsStore::putInt16(const char* key, int16_t val) {
     if (!open_) {
         return Result<void>::err(Status::kStorageErr);
     }
-    uint8_t raw[2]{};
-    std::memcpy(raw, &val, 2);
-    if (!storeEntry(key, raw, 2)) {
+    std::array<uint8_t, 2> raw{};
+    std::memcpy(raw.data(), &val, 2);
+    if (!storeEntry(key, raw.data(), 2)) {
         return Result<void>::err(Status::kStorageErr);
     }
     return Result<void>::ok();
@@ -153,9 +155,9 @@ Result<void> NvsStore::putUint32(const char* key, uint32_t val) {
     if (!open_) {
         return Result<void>::err(Status::kStorageErr);
     }
-    uint8_t raw[4]{};
-    std::memcpy(raw, &val, 4);
-    if (!storeEntry(key, raw, 4)) {
+    std::array<uint8_t, 4> raw{};
+    std::memcpy(raw.data(), &val, 4);
+    if (!storeEntry(key, raw.data(), 4)) {
         return Result<void>::err(Status::kStorageErr);
     }
     return Result<void>::ok();

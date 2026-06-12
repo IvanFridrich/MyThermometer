@@ -1,5 +1,7 @@
 #include "config_model.h"
 
+#include <cstdint>
+
 #include "Config.h"
 
 ConfigModel ConfigModel::defaults() {

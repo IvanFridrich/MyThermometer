@@ -1,6 +1,10 @@
 #include "anomaly.h"
 
+#include <cstdint>
+
 #include "Config.h"
+#include "result.h"
+#include "types.h"
 
 AnomalyDetector::AnomalyDetector(uint8_t consecutiveErrThreshold)
     : threshold_(consecutiveErrThreshold) {}

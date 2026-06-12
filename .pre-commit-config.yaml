@@ -27,7 +27,8 @@ repos:
         entry: bash -c 'mapfile -t srcs < <(find src/core src/hal -name "*.cpp" 2>/dev/null);
           [ ${#srcs[@]} -eq 0 ] && exit 0;
           clang-tidy --config-file=.clang-tidy "${srcs[@]}" --
-          -std=c++17 -fno-exceptions -fno-rtti -I src -I include -DNATIVE_BUILD'
+          -std=c++17 -fno-exceptions -fno-rtti -I src -I include -DNATIVE_BUILD
+          -D_CRT_SECURE_NO_WARNINGS'
         pass_filenames: false
         always_run: true
 

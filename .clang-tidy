@@ -19,6 +19,8 @@ Checks: >
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-type-vararg,
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-no-malloc,
@@ -27,6 +29,7 @@ Checks: >
   -readability-magic-numbers,
   -readability-identifier-length,
   -misc-non-private-member-variables-in-classes,
+  -bugprone-easily-swappable-parameters,
   -cert-err58-cpp,
   -cert-err60-cpp
 
@@ -44,6 +47,20 @@ Checks: >
 # cppcoreguidelines-pro-bounds-pointer-arithmetic
 #   ETL containers expose raw-pointer iterators; Arduino String/buffer APIs
 #   use pointer arithmetic. Disable to avoid noise on well-understood patterns.
+#
+# cppcoreguidelines-pro-bounds-array-to-pointer-decay
+#   HAL fake implementations pass fixed-size C arrays to memset/memcpy/strncpy.
+#   Switching every buffer to std::array would require changing all HAL headers.
+#   The patterns are local and well-understood; suppress globally.
+#
+# cppcoreguidelines-pro-bounds-constant-array-index
+#   Ring buffers and display cursor logic index C arrays with runtime values.
+#   These are bounded by prior range checks; the false-positive rate is high.
+#
+# bugprone-easily-swappable-parameters
+#   Embedded HAL APIs frequently have adjacent same-type parameters (GPIO pins,
+#   LCD row/col, channel IDs). The call sites are all internal or in tests;
+#   suppress to avoid noise on well-known stable APIs.
 #
 # cppcoreguidelines-pro-type-vararg
 #   Serial.printf / ESP_LOGx use varargs. Disable at the boundary; domain

@@ -1,6 +1,6 @@
 #include "history_buffer.h"
 
-// Phase 2 implements the ring-buffer logic (append, at, clear).
+#include <cstdint>
 
 void HistoryBuffer::append(const HistoryRecord& record) {
     buf_[head_] = record;
@@ -15,7 +15,7 @@ const HistoryRecord& HistoryBuffer::at(uint16_t idx) const {
     if (idx >= count_) {
         return kEmpty;
     }
-    uint16_t pos = static_cast<uint16_t>((head_ + kCapacity - count_ + idx) % kCapacity);
+    const auto pos = static_cast<uint16_t>((head_ + kCapacity - count_ + idx) % kCapacity);
     return buf_[pos];
 }
 

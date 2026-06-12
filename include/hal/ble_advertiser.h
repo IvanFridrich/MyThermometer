@@ -16,11 +16,13 @@ class BleAdvertiser {
 
 #ifdef NATIVE_BUILD
     // Inspection API
+    bool           initialized() const { return initialized_; }
     const uint8_t* lastPayload() const { return lastPayload_; }
     uint8_t        lastPayloadLen() const { return lastPayloadLen_; }
     uint32_t       totalBurstCount() const { return totalBursts_; }
 
   private:
+    bool     initialized_{false};
     uint8_t  lastPayload_[cfg::ble::kMaxPayloadBytes]{};
     uint8_t  lastPayloadLen_{0};
     uint32_t totalBursts_{0};

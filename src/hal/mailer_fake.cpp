@@ -1,6 +1,9 @@
+#include "hal/mailer.h"
+
+#include <cstdint>
 #include <cstring>
 
-#include "hal/mailer.h"
+#include "result.h"
 
 Mailer::Mailer(const char* /*host*/, uint16_t /*port*/, const char* /*user*/,
                const char* /*password*/, const char* /*from*/) {}

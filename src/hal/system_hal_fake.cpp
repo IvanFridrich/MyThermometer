@@ -1,5 +1,7 @@
 #include "hal/system_hal.h"
 
+#include <cstdint>
+
 void SystemHal::restart() {
     ++restarts_;
 }

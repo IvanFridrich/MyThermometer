@@ -1,6 +1,9 @@
+#include "hal/display.h"
+
+#include <cstdint>
 #include <cstring>
 
-#include "hal/display.h"
+#include "result.h"
 
 Display::Display(uint8_t /*rs*/, uint8_t /*en*/, uint8_t /*d4*/, uint8_t /*d5*/, uint8_t /*d6*/,
                  uint8_t /*d7*/) {}

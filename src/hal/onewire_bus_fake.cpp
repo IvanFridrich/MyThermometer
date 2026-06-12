@@ -1,5 +1,10 @@
 #include "hal/onewire_bus.h"
 
+#include <cstdint>
+
+#include "result.h"
+#include "types.h"
+
 OneWireBus::OneWireBus(uint8_t /*pin*/) {}
 
 Result<Temperature> OneWireBus::readCentiC() {

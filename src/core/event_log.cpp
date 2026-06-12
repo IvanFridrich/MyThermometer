@@ -1,6 +1,9 @@
 #include "event_log.h"
 
+#include <cstdint>
 #include <cstring>
+
+#include "Config.h"
 
 static const LogEntry kEmptyEntry{};
 
@@ -24,8 +27,8 @@ const LogEntry& EventLog::at(uint8_t idx) const {
     if (idx >= count_) {
         return kEmptyEntry;
     }
-    uint8_t pos = static_cast<uint8_t>((head_ + cfg::log::kEventLogCapacity - count_ + idx) %
-                                       cfg::log::kEventLogCapacity);
+    const auto pos = static_cast<uint8_t>((head_ + cfg::log::kEventLogCapacity - count_ + idx) %
+                                          cfg::log::kEventLogCapacity);
     return buf_[pos];
 }
 

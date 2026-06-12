@@ -1,6 +1,10 @@
+#include "hal/http_server.h"
+
+#include <cstdint>
 #include <cstring>
 
-#include "hal/http_server.h"
+#include "Config.h"
+#include "result.h"
 
 HttpServer::HttpServer(uint16_t /*port*/) {}
 
@@ -16,6 +20,7 @@ void HttpServer::on(const char* uri, int method, HttpHandler handler) {
 }
 
 Result<void> HttpServer::begin() {
+    running_ = true;
     return Result<void>::ok();
 }
 

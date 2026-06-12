@@ -79,36 +79,49 @@ jobs:
         run: pio test -e native || true
 
       - name: Build & run tests with clang++-18 (ASan + UBSan + coverage)
-        env:
-          LLVM_PROFILE_FILE: default.profraw
         run: |
-          # doctest lands in .pio/libdeps/native/ (project-local), NOT ~/.platformio
           # doctest.h lives at .pio/libdeps/native/doctest/doctest/doctest.h;
-          # we need the grandparent dir so that -I <dir> resolves <doctest/doctest.h>.
+          # double dirname to reach the grandparent include dir.
           DOCTEST_H=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/doctest.h" 2>/dev/null | head -1)
           DOCTEST_INC=$(dirname "$(dirname "$DOCTEST_H")")
-          find src/core -name "*.cpp" > /tmp/srcs.txt 2>/dev/null || true
-          find test/test_skeleton -name "*.cpp" >> /tmp/srcs.txt
-          clang++-18 \
-            -std=c++17 \
-            -fno-exceptions -fno-rtti \
-            -fsanitize=address,undefined \
-            -fprofile-instr-generate -fcoverage-mapping \
-            -Wall -Wextra \
-            -I src -I include -I test/test_skeleton \
-            -I "$DOCTEST_INC" \
-            $(cat /tmp/srcs.txt) \
-            -o test_runner
-          ./test_runner -v
+
+          # Common sources shared by all test suites.
+          find src/core -name "*.cpp"     >  /tmp/core_srcs.txt 2>/dev/null || true
+          find src/hal  -name "*_fake.cpp" >> /tmp/core_srcs.txt 2>/dev/null || true
+
+          # Each test_* directory has its own DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+          # and is compiled into a separate binary.
+          for test_dir in test/test_*/; do
+            test_name=$(basename "$test_dir")
+            echo "=== Building $test_name ==="
+            find "$test_dir" -name "*.cpp" > /tmp/test_srcs.txt
+            clang++-18 \
+              -std=c++17 \
+              -fno-exceptions -fno-rtti \
+              -DNATIVE_BUILD \
+              -fsanitize=address,undefined \
+              -fprofile-instr-generate -fcoverage-mapping \
+              -Wall -Wextra \
+              -I src -I include -I "$test_dir" \
+              -I "$DOCTEST_INC" \
+              $(cat /tmp/core_srcs.txt) \
+              $(cat /tmp/test_srcs.txt) \
+              -o "test_runner_${test_name}"
+            echo "=== Running $test_name ==="
+            LLVM_PROFILE_FILE="${test_name}.profraw" ./test_runner_${test_name} -v
+          done
 
       - name: Generate coverage report (llvm-cov)
         run: |
-          llvm-profdata-18 merge -sparse default.profraw -o coverage.profdata
+          # Merge all per-suite profraw files.
+          llvm-profdata-18 merge -sparse $(ls *.profraw) -o coverage.profdata
+          # Report coverage using the most complete suite (test_phase1_link).
+          RUNNER=$(ls test_runner_test_phase1_link 2>/dev/null || ls test_runner_test_* | head -1)
           echo "=== Coverage summary ==="
-          llvm-cov-18 report ./test_runner \
+          llvm-cov-18 report "$RUNNER" \
             -instr-profile=coverage.profdata \
             $(find src/core -name "*.cpp" 2>/dev/null | tr '\n' ' ')
-          llvm-cov-18 show ./test_runner \
+          llvm-cov-18 show "$RUNNER" \
             -instr-profile=coverage.profdata \
             -format=html -output-dir=coverage/ \
             $(find src/core -name "*.cpp" 2>/dev/null | tr '\n' ' ')
@@ -175,7 +188,6 @@ jobs:
               -fno-rtti \
               -I src \
               -I include \
-              -I test/test_skeleton \
               -DNATIVE_BUILD
 
       - name: Run cppcheck on src/core/
@@ -189,10 +201,7 @@ jobs:
             --inline-suppr \
             -I src \
             -I include \
-            src/core/ \
-          || true
-          # 'true' makes this non-fatal in Phase 0 while src/core/ is empty.
-          # Remove '|| true' once real source files exist.
+            src/core/
 
   # ---------------------------------------------------------------------------
   # Job 4: Gate — check whether SONAR_TOKEN secret is configured.
@@ -209,8 +218,10 @@ jobs:
       enabled: ${{ steps.check.outputs.enabled }}
     steps:
       - id: check
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
+          if [ -n "$SONAR_TOKEN" ]; then
             echo "enabled=true"  >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -269,33 +280,34 @@ jobs:
         run: pio test -e native || true
 
       - name: Build & run tests for Sonar coverage
-        # Same approach as native-tests job: bypass pio and compile with clang++
-        # directly to guarantee LLVM coverage instrumentation in the binary.
-        env:
-          LLVM_PROFILE_FILE: default.profraw
         run: |
-          # doctest.h lives at .pio/libdeps/native/doctest/doctest/doctest.h;
-          # we need the grandparent dir so that -I <dir> resolves <doctest/doctest.h>.
           DOCTEST_H=$(find ~/.platformio "$(pwd)/.pio" -name "doctest.h" -path "*/doctest/doctest.h" 2>/dev/null | head -1)
           DOCTEST_INC=$(dirname "$(dirname "$DOCTEST_H")")
-          find src/core -name "*.cpp" > /tmp/srcs.txt 2>/dev/null || true
-          find test/test_skeleton -name "*.cpp" >> /tmp/srcs.txt
-          clang++-18 \
-            -std=c++17 \
-            -fno-exceptions -fno-rtti \
-            -fsanitize=address,undefined \
-            -fprofile-instr-generate -fcoverage-mapping \
-            -Wall -Wextra \
-            -I src -I include -I test/test_skeleton \
-            -I "$DOCTEST_INC" \
-            $(cat /tmp/srcs.txt) \
-            -o test_runner
-          ./test_runner -v
+          find src/core -name "*.cpp"     >  /tmp/core_srcs.txt 2>/dev/null || true
+          find src/hal  -name "*_fake.cpp" >> /tmp/core_srcs.txt 2>/dev/null || true
+          for test_dir in test/test_*/; do
+            test_name=$(basename "$test_dir")
+            find "$test_dir" -name "*.cpp" > /tmp/test_srcs.txt
+            clang++-18 \
+              -std=c++17 \
+              -fno-exceptions -fno-rtti \
+              -DNATIVE_BUILD \
+              -fsanitize=address,undefined \
+              -fprofile-instr-generate -fcoverage-mapping \
+              -Wall -Wextra \
+              -I src -I include -I "$test_dir" \
+              -I "$DOCTEST_INC" \
+              $(cat /tmp/core_srcs.txt) \
+              $(cat /tmp/test_srcs.txt) \
+              -o "test_runner_${test_name}"
+            LLVM_PROFILE_FILE="${test_name}.profraw" ./test_runner_${test_name} -v
+          done
 
       - name: Generate coverage data for Sonar
         run: |
-          llvm-profdata-18 merge -sparse default.profraw -o coverage.profdata
-          llvm-cov-18 show ./test_runner \
+          llvm-profdata-18 merge -sparse $(ls *.profraw) -o coverage.profdata
+          RUNNER=$(ls test_runner_test_phase1_link 2>/dev/null || ls test_runner_test_* | head -1)
+          llvm-cov-18 show "$RUNNER" \
             -instr-profile=coverage.profdata \
             -format=text \
             $(find src/core -name "*.cpp" 2>/dev/null | tr '\n' ' ') \

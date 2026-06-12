@@ -54,7 +54,7 @@ constexpr uint8_t kBacklightChannel = 2;
 
 constexpr uint32_t kContrastFreqHz  = 25000; // above audible; RC-smoothed
 constexpr uint8_t  kContrastResBits = 8;     // 0..255 duty (NVS uint8)
-constexpr uint16_t kContrastDefault = 128;   // startup duty (tune on HW)
+constexpr uint8_t  kContrastDefault = 128;   // startup duty (tune on HW)
 
 constexpr uint8_t kBuzzerResBits = 10;
 } // namespace ledc
@@ -108,15 +108,21 @@ constexpr float kStoreScale = 100.0F; // C * 100
 // 5. EVENT FLAGS (bitfield stored per history record AND used as live state)
 // ----------------------------------------------------------------------------
 namespace flag {
-constexpr uint16_t kBoot         = 1U << 0;
-constexpr uint16_t kFire         = 1U << 1; // inside >= fire thr
-constexpr uint16_t kSensorOpen   = 1U << 2; // disconnected / no device
-constexpr uint16_t kOneWireErr   = 1U << 3; // CRC / bus error
-constexpr uint16_t kWeirdValue   = 1U << 4; // outside plausibility
-constexpr uint16_t kDiffExceeded = 1U << 5; // |avg_out - avg_in| >= threshold
-constexpr uint16_t kWifiDown     = 1U << 7; // wifi lost during interval
-constexpr uint16_t kEmailSent    = 1U << 8; // alarm email dispatched
-constexpr uint16_t kEmailFailed  = 1U << 9; // alarm email failed
+constexpr uint16_t kBoot            = 1U << 0;
+constexpr uint16_t kFire            = 1U << 1;  // inside >= fire thr
+constexpr uint16_t kSensorOpen      = 1U << 2;  // disconnected / no device
+constexpr uint16_t kOneWireErr      = 1U << 3;  // CRC / bus error
+constexpr uint16_t kWeirdValue      = 1U << 4;  // outside plausibility
+constexpr uint16_t kDiffExceeded    = 1U << 5;  // |avg_out - avg_in| >= threshold (§6.3)
+constexpr uint16_t kWifiUp          = 1U << 6;  // wifi link established
+constexpr uint16_t kWifiDown        = 1U << 7;  // wifi lost during interval
+constexpr uint16_t kEmailSent       = 1U << 8;  // alarm email dispatched
+constexpr uint16_t kEmailFailed     = 1U << 9;  // alarm email failed
+constexpr uint16_t kInnerInvalid    = 1U << 10; // inner reading was kTempInvalid this interval
+constexpr uint16_t kOuterInvalid    = 1U << 11; // outer reading was kTempInvalid this interval
+constexpr uint16_t kBrownoutRecover = 1U << 12; // device started after brownout reset (§8.2)
+constexpr uint16_t kConfigChanged   = 1U << 13; // config written via web/NVS this interval
+// bits 14-15: reserved
 } // namespace flag
 
 // ----------------------------------------------------------------------------
@@ -161,6 +167,7 @@ constexpr uint32_t kBurstSpacingMs   = 150; // gap between bursts
 constexpr uint16_t kAdvIntervalMinMs = 100; // within a burst
 constexpr uint16_t kAdvIntervalMaxMs = 100;
 constexpr char     kDeviceName[]     = "ESP32S3-Thermo";
+constexpr uint8_t  kMaxPayloadBytes  = 24; // max manufacturer-data payload (fits in 31-byte PDU)
 } // namespace ble
 
 // ----------------------------------------------------------------------------
@@ -172,6 +179,7 @@ constexpr uint16_t kHttpPort       = 80;         // plain HTTP (LAN-trusted)
 constexpr uint32_t kReconnectMinMs = 1000;       // backoff start
 constexpr uint32_t kReconnectMaxMs = 30000;      // backoff cap
 constexpr uint32_t kWifiCheckMs    = 2000;       // link supervision period
+constexpr uint8_t  kMaxHttpRoutes  = 16;         // max registered route handlers (HttpServer fake)
 } // namespace net
 
 // ----------------------------------------------------------------------------
@@ -237,7 +245,15 @@ constexpr uint8_t kPrioBeeper  = 6; // timing-sensitive
 namespace log {
 constexpr uint32_t kBaud = 115200;
 enum class Level : uint8_t { kTrace = 0, kDebug, kInfo, kWarn, kError };
-constexpr Level kMinLevel = Level::kDebug; // verbose by default
+constexpr Level   kMinLevel         = Level::kDebug; // verbose by default
+constexpr uint8_t kEventLogCapacity = 32;            // in-RAM circular log entries
 } // namespace log
+
+// ----------------------------------------------------------------------------
+// 15. NVS  (flash key-value store namespace identifiers)
+// ----------------------------------------------------------------------------
+namespace nvs {
+constexpr uint8_t kMaxEntries = 16; // fake in-memory table capacity (covers all 8 config keys)
+} // namespace nvs
 
 } // namespace cfg

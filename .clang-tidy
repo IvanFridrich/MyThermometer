@@ -22,6 +22,7 @@ Checks: >
   -cppcoreguidelines-pro-type-vararg,
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-no-malloc,
+  -cppcoreguidelines-avoid-c-arrays,
   -modernize-use-trailing-return-type,
   -readability-magic-numbers,
   -readability-identifier-length,
@@ -56,6 +57,11 @@ Checks: >
 #   PlatformIO/ESP-IDF init code calls pvPortMalloc; not our code, but
 #   clang-tidy sees included headers. Disable globally, enforce via review.
 #
+# cppcoreguidelines-avoid-c-arrays
+#   Config.h constexpr char[] string literals are idiomatic for embedded
+#   constants passed as const char* to HAL APIs (WiFi SSID, mDNS hostname,
+#   BLE device name). std::string_view would require .data() at every call site.
+#
 # modernize-use-trailing-return-type
 #   Style choice: leading return type is clearer for embedded function pointers
 #   and FreeRTOS task signatures (void (*)(void*)).
@@ -71,7 +77,7 @@ Checks: >
 #   These check for exceptions in static-storage-duration objects and
 #   exception-safe copy constructors. Both are irrelevant with -fno-exceptions.
 
-WarningsAsErrors: ""
+WarningsAsErrors: "*"
 
 # Only analyse files under src/ and include/; skip .pio/ generated files.
 HeaderFilterRegex: "(src|include)/.*\\.(h|hpp)$"

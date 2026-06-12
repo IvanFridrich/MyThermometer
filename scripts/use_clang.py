@@ -41,4 +41,19 @@ if requested_cxx:
         print(f"[use_clang.py] Requested CXX={requested_cxx!r} not found or not clang; "
               "no sanitizers added")
 else:
-    print("[use_clang.py] CXX env var not set; using platform default (g++ on Windows)")
+    # On Windows the MinGW runtime DLLs (libgcc_s_seh-1, libstdc++-6,
+    # libwinpthread-1) are in the MinGW bin directory, which is on the shell
+    # PATH but NOT on the Windows-native PATH seen by Python subprocess.
+    # Statically link the runtime so the test runner exe is self-contained.
+    import sys
+    if sys.platform == "win32":
+        env.Append(LINKFLAGS=[
+            "-static-libgcc",
+            "-static-libstdc++",
+            "-Wl,-Bstatic,--whole-archive",
+            "-lwinpthread",
+            "-Wl,--no-whole-archive,-Bdynamic",
+        ])
+        print("[use_clang.py] CXX env var not set; g++ on Windows — static runtime linked")
+    else:
+        print("[use_clang.py] CXX env var not set; using platform default compiler")

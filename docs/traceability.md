@@ -10,15 +10,15 @@ Phase column: earliest phase where the requirement is satisfied.
 | ID    | Requirement (short) | Module(s) | Test method | Phase |
 |-------|---------------------|-----------|-------------|-------|
 | FR-01 | Measure both sensors 1×/min | `app/measurement_task`, `hal/onewire_bus` | HW smoke test (Phase 3) | 3 |
-| FR-02 | 10-min moving average per sensor | `core/moving_average` | Unit test (MovingAverage) | 2 |
-| FR-03 | Detect weird values (-30..80 °C), flag WEIRD_VALUE | `core/anomaly` | Unit test (AnomalyDetector) | 2 |
-| FR-04 | Detect OneWire CRC/open, flag after 3 consecutive errors | `core/anomaly`, `hal/onewire_bus` | Unit test (AnomalyDetector error path) | 2 |
-| FR-05 | Ring buffer 144 records, static RAM | `core/history_buffer` | Unit test (HistoryBuffer), static_assert 864 B | 2 |
-| FR-06 | One record = two avg temps + OR flags per 10-min window | `core/history_buffer`, `app/measurement_task` | Unit test + integration | 2 |
-| FR-07 | Diff alarm: \|avg_in−avg_out\| ≥ 2 °C → beep+flag, clear 1.5 °C | `core/alarm_state` | Unit test (AlarmState diff hysteresis) | 2 |
-| FR-08 | Fire alarm: instant inner ≥ 45 °C → repeat alarm, clear 43 °C | `core/alarm_state` | Unit test (AlarmState fire hysteresis) | 2 |
-| FR-09 | Sensor fault → distinctive beep + flag + email | `core/alarm_state`, `app/mail_task` | Unit test + integration | 2/5 |
-| FR-10 | Fire detection only on inner sensor | `core/alarm_state` | Unit test (AlarmState snapshot.innerRaw only) | 2 |
+| FR-02 | 10-min moving average per sensor | `core/moving_average` | `test/test_moving_average` (warm-up, wrap, invalid exclusion) | 2 |
+| FR-03 | Detect weird values (-30..80 °C), flag WEIRD_VALUE | `core/anomaly` | `test/test_anomaly` (bounds, sentinel, kTempInvalid) | 2 |
+| FR-04 | Detect OneWire CRC/open, flag after 3 consecutive errors | `core/anomaly`, `hal/onewire_bus` | `test/test_anomaly` (threshold, recovery) + HW (Phase 3) | 2 |
+| FR-05 | Ring buffer 144 records, static RAM | `core/history_buffer` | `test/test_history_buffer` + `static_assert sizeof==6` | 2 |
+| FR-06 | One record = two avg temps + OR flags per 10-min window | `core/history_buffer`, `app/measurement_task` | `test/test_history_buffer` (flags verbatim) + integration | 2 |
+| FR-07 | Diff alarm: \|avg_in−avg_out\| ≥ 2 °C → beep+flag, clear 1.5 °C | `core/alarm_state` | `test/test_alarm_state` (diff hysteresis, both goals) | 2 |
+| FR-08 | Fire alarm: instant inner ≥ 45 °C → repeat alarm, clear 43 °C | `core/alarm_state` | `test/test_alarm_state` (fire hysteresis, no flap) | 2 |
+| FR-09 | Sensor fault → distinctive beep + flag + email | `core/alarm_state`, `app/mail_task` | `test/test_alarm_state` (sensor edges) + integration | 2/5 |
+| FR-10 | Fire detection only on inner sensor | `core/alarm_state` | `test/test_alarm_state` (innerRaw drives fire only) | 2 |
 | FR-11 | LCD row 1: temps; row 2: rotating pages (IP, uptime, status) | `app/lcd_task`, `hal/display` | HW smoke test | 3 |
 | FR-12 | Show IP on boot | `app/lcd_task` | HW smoke test | 4 |
 | FR-13 | Contrast via LEDC PWM | `hal/pwm` | HW smoke test | 3 |
@@ -35,7 +35,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-24 | BLE beacon 5 bursts/min, manufacturer data §6.2 | `hal/ble_advertiser`, `app/ble_task` | Python bleak monitor | 4 |
 | FR-25 | UART log 115200, structured format | `core/event_log`, `app/measurement_task` | Terminal observation | 5 |
 | FR-26 | Email on fire + sensor fault, rate-limited 1×/h | `app/mail_task`, `hal/mailer` | Unit test (email logic) + integration | 5 |
-| FR-27 | All config fields persistent in NVS, default on empty | `hal/nvs_store`, `core/config_model` | Unit test (NvsStoreFake round-trip) | 4 |
+| FR-27 | All config fields persistent in NVS, default on empty | `hal/nvs_store`, `core/config_model` | `test/test_config_model` (defaults+validate) + NvsStoreFake round-trip | 4 |
 | FR-28 | Python bleak monitor decodes advertising packets | `tools/ble_monitor/monitor.py` | Manual Windows test | 7 |
 
 ## Non-Functional Requirements

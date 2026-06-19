@@ -14,7 +14,11 @@ coverage/
 
 # Compiled test binaries
 test_runner
-test_runner.exe
+test_runner*.exe
+test_runner_*
+# Local ASan/UBSan scratch builds + Windows debug symbols
+san_*
+*.pdb
 
 # SonarQube scanner and analysis cache
 sonar-scanner*

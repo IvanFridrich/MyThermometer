@@ -13,7 +13,12 @@ EventFlags AnomalyDetector::classify(const Result<Temperature>& reading) {
     EventFlags flags = 0;
 
     if (!reading.isOk()) {
-        ++consecutiveErrors_;
+        // Saturate at the threshold: the counter's only use is the >= test below,
+        // so clamping prevents the uint8_t wrap that would momentarily drop
+        // SENSOR_OPEN on a sensor stuck in error for >255 consecutive cycles.
+        if (consecutiveErrors_ < threshold_) {
+            ++consecutiveErrors_;
+        }
         switch (reading.status()) {
         case Status::kSensorOpen:
             flags |= cfg::flag::kSensorOpen;

@@ -113,7 +113,7 @@ constexpr uint16_t kFire            = 1U << 1;  // inside >= fire thr
 constexpr uint16_t kSensorOpen      = 1U << 2;  // disconnected / no device
 constexpr uint16_t kOneWireErr      = 1U << 3;  // CRC / bus error
 constexpr uint16_t kWeirdValue      = 1U << 4;  // outside plausibility
-constexpr uint16_t kDiffExceeded    = 1U << 5;  // |avg_out - avg_in| >= threshold (§6.3)
+constexpr uint16_t kDiffExceeded    = 1U << 5;  // |avg_out-avg_in| >= thr, window_goal dir (§6.3)
 constexpr uint16_t kWifiUp          = 1U << 6;  // wifi link established
 constexpr uint16_t kWifiDown        = 1U << 7;  // wifi lost during interval
 constexpr uint16_t kEmailSent       = 1U << 8;  // alarm email dispatched

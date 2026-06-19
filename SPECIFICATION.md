@@ -20,7 +20,7 @@ Rozhodnutí aktualizovaná podle tvých detailních odpovědí. Položky 🔶 č
 | D6 | LCD | HD44780, 2×8, 4-bit, lib `LiquidCrystal` | — |
 | D7 | Bzučák | **pasivní**, LEDC PWM přes NPN tranzistor (umožní vzory) | ano (aktivní = 1 řádek) |
 | D8 | Podsvícení LCD | natvrdo zapnuté | volitelně řízené |
-| D9 | Rozdílový alarm | `abs(avg_in − avg_out) ≥ 2,0 °C`, z 10min průměru | prahy v configu |
+| D9 | Rozdílový alarm | `abs(avg_in − avg_out) ≥ 2,0 °C` ve směru dle `window_goal` (CoolRoom: venku chladněji; WarmRoom: venku tepleji), z 10min průměru | prahy v configu |
 | D10 | Hystereze rozdílu | set 2,0 °C / clear 1,5 °C | config |
 | D11 | Požár | z **okamžité** hodnoty inner ≥ 45 °C, clear 43 °C | config |
 | D12 | Web protokol | **plain HTTP** (LAN-trusted, **bez autentizace** — akceptované riziko) | HTTPS + Basic Auth jako rozšíření |
@@ -85,7 +85,7 @@ reálné timestampy dopočítává webová stránka v prohlížeči z času proh
 - **FR-06** Jeden záznam = obě teploty (10min průměr v okamžiku vzorku) a OR všech příznaků událostí v daném 10min okně. Timestamp se nepersistuje (§6.1). Struktura viz §6.1.
 
 **Alarmy**
-- **FR-07** Rozdíl: když `abs(avg_in − avg_out) ≥ diff_threshold` → krátké dvojité pípnutí (jednorázové při náběžné hraně) + flag `DIFF_EXCEEDED`; clear s hysterezí.
+- **FR-07** Rozdíl: když `abs(avg_in − avg_out) ≥ diff_threshold` **a směr odpovídá `window_goal`** (CoolRoom: venku chladněji než uvnitř; WarmRoom: venku tepleji) → krátké dvojité pípnutí (jednorázové při náběžné hraně) + flag `DIFF_EXCEEDED`; clear s hysterezí. Při rozdílu v opačném směru se alarm nespustí (otevření okna by k cíli nepomohlo).
 - **FR-08** Požár: když okamžité `inner ≥ fire_threshold` (default 45 °C) → opakovaný alarm dokud trvá; clear s hysterezí; flag `FIRE`; spustí e-mail.
 - **FR-09** Porucha čidla → distinktivní zvukový vzor + flag + e-mail.
 - **FR-10** Detekce požáru jen u `inner`.
@@ -236,10 +236,13 @@ struct __attribute__((packed)) HistoryRecord {
 WIFI_UP, EMAIL_SENT, EMAIL_FAILED, INNER_INVALID, OUTER_INVALID,
 BROWNOUT_RECOVER, CONFIG_CHANGED.`
 
-Poznámka k DIFF_EXCEEDED: jeden bit, bez směru. Směr (which sensor is hotter)
-je derivovatelný z hodnot teplot (avg_inner vs avg_outer) a předává se v JSON
-API jako samostatné pole, nikoli jako příznak. BLE payload §6.2 je nezměněn
-(receiver si směr dopočítá z T_inner/T_outer v paketu).
+Poznámka k DIFF_EXCEEDED: jeden bit, bez směru zakódovaného v příznaku. Příznak
+se nastaví, když `abs(avg_in − avg_out) ≥ diff_threshold` **a směr odpovídá
+`window_goal`** (CoolRoom: venku chladněji; WarmRoom: venku tepleji) — tedy shodně
+s rozdílovým alarmem (FR-07). Samotný směr (which sensor is hotter) se v příznaku
+nekóduje; je derivovatelný z hodnot teplot (avg_inner vs avg_outer) a předává se
+v JSON API jako samostatné pole. BLE payload §6.2 je nezměněn (receiver si směr
+dopočítá z T_inner/T_outer v paketu).
 
 ### 6.4 Konfigurace (NVS)
 `beeper_enabled(bool=true), diff_threshold_c100(int16=200),

@@ -15,7 +15,9 @@ class OneWireBus {
   public:
     explicit OneWireBus(uint8_t pin);
 
-    // Read temperature in centi-°C.  Errors: kSensorOpen, kOneWireErr, kWeirdValue.
+    // Read temperature in centi-°C.  Errors: kNotReady (first call, conversion
+    // just started), kSensorOpen (no presence pulse), kOneWireErr (CRC/garbage).
+    // Plausibility/sentinel classification is the domain AnomalyDetector's job.
     Result<Temperature> readCentiC();
 
     // Read 64-bit ROM identifier of the single device on the bus.

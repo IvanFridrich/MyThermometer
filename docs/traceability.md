@@ -12,7 +12,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-01 | Measure both sensors 1×/min | `app/measurement_task`, `hal/onewire_bus_target` | Driver impl (Phase 3, bit-bang); HW smoke test pending; cadence in `app` (Phase 4) | 3 |
 | FR-02 | 10-min moving average per sensor | `core/moving_average` | `test/test_moving_average` (warm-up, wrap, invalid exclusion) | 2 |
 | FR-03 | Detect weird values (-30..80 °C), flag WEIRD_VALUE | `core/anomaly` | `test/test_anomaly` (bounds, sentinel, kTempInvalid) | 2 |
-| FR-04 | Detect OneWire CRC/open, flag after 3 consecutive errors | `core/anomaly`, `hal/onewire_bus` | `test/test_anomaly` (threshold, recovery) + HW (Phase 3) | 2 |
+| FR-04 | Detect OneWire CRC/open, flag after 3 consecutive errors | `core/anomaly`, `hal/onewire_bus_target` | Driver returns kSensorOpen (no presence) / kOneWireErr (CRC, all-zero); 85 °C & −127 °C sentinel classification is in `core/anomaly` (ADR-12), `test/test_anomaly`; threshold/recovery `test/test_anomaly` + HW | 2 |
 | FR-05 | Ring buffer 144 records, static RAM | `core/history_buffer` | `test/test_history_buffer` + `static_assert sizeof==6` | 2 |
 | FR-06 | One record = two avg temps + OR flags per 10-min window | `core/history_buffer`, `app/measurement_task` | `test/test_history_buffer` (flags verbatim) + integration | 2 |
 | FR-07 | Diff alarm: \|avg_in−avg_out\| ≥ 2 °C → beep+flag, clear 1.5 °C | `core/alarm_state` | `test/test_alarm_state` (diff hysteresis, both goals) | 2 |

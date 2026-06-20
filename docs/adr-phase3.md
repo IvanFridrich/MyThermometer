@@ -22,10 +22,13 @@ without hardware and would remove `paulstoffregen/OneWire` from `lib_deps`.
 (b) ESP-IDF `onewire_bus` managed component — awkward to wire into a PlatformIO
 Arduino build.
 
-**Binding constraint / mitigation:** The library disables interrupts during bit
-timing slots. This is isolated to **Core 1** (`cfg::task::kCoreApp`), where the
-measurement task runs, away from the WiFi/BLE stacks pinned to Core 0 (NFR-07).
-A single bus transaction is short and runs once per 60 s sample.
+**Binding constraint / mitigation:** The library masks interrupts **per bit**
+(~70 µs read/write slot), not per transaction — so the longest contiguous
+interrupt-off window is a single bit slot, not a whole 9-byte scratchpad read.
+This is isolated to **Core 1** (`cfg::task::kCoreApp`), where the measurement
+task runs, away from the WiFi/BLE stacks pinned to Core 0 (NFR-07). A single bus
+transaction is sub-millisecond of bus time and runs once per 60 s sample, far
+under the 8 s task WDT (NFR-02).
 
 **Revisit if:** OneWire glitches appear under load, or sub-second sampling is
 added — then move to the custom RMT driver (the HAL interface is unchanged, only

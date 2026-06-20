@@ -28,7 +28,7 @@ constexpr uint8_t kScratchpadBytes = 9;
 constexpr uint8_t kRomBytes        = 8;
 constexpr uint8_t kCrcDataBytesSp  = 8;   // scratchpad CRC covers bytes [0..7]
 constexpr uint8_t kCrcDataBytesRom = 7;   // ROM CRC covers bytes [0..6]
-constexpr int32_t kMilliCToCenti   = 100; // centi-degC = raw * 100 / 16
+constexpr int32_t kCentiPerDegree  = 100; // centi-degC = raw * 100 / 16
 constexpr int32_t kRawLsbPer16     = 16;  // DS18B20 LSB = 1/16 degC
 } // namespace
 
@@ -84,11 +84,14 @@ Result<Temperature> OneWireBus::readCentiC() {
 
     const auto raw = static_cast<int16_t>((static_cast<uint16_t>(sp[1]) << 8U) | sp[0]);
     const auto centi =
-        static_cast<Temperature>((static_cast<int32_t>(raw) * kMilliCToCenti) / kRawLsbPer16);
+        static_cast<Temperature>((static_cast<int32_t>(raw) * kCentiPerDegree) / kRawLsbPer16);
     return Result<Temperature>::ok(centi);
 }
 
 Result<uint64_t> OneWireBus::readRomId() {
+    // This issues its own bus reset, which aborts any conversion readCentiC()
+    // started; force the read-previous/trigger-next sequence to cold-restart.
+    convStarted_ = false;
     if (ow_.reset() == 0) {
         return Result<uint64_t>::err(Status::kSensorOpen);
     }

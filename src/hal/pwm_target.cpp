@@ -32,6 +32,10 @@ void Pwm::setContrastDuty(uint8_t duty) {
 }
 
 void Pwm::tone(uint16_t hz) {
+    if (hz == 0) {
+        noTone(); // 0 Hz must reliably silence; do not rely on ledcWriteTone(0)
+        return;
+    }
     ledcWriteTone(buzzerChannel_, hz);
 }
 

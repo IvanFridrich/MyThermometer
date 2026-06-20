@@ -4,6 +4,10 @@
 #include "Config.h"
 #include "result.h"
 
+#ifndef NATIVE_BUILD
+class NimBLEAdvertising; // fwd-decl; target .cpp includes the full NimBLE header
+#endif
+
 // HAL: non-connectable BLE advertising beacon (manufacturer-specific data §6.2).
 // Target: NimBLE (Phase 4).  Fake: records last payload and burst count.
 class BleAdvertiser {
@@ -26,5 +30,10 @@ class BleAdvertiser {
     uint8_t  lastPayload_[cfg::ble::kMaxPayloadBytes]{};
     uint8_t  lastPayloadLen_{0};
     uint32_t totalBursts_{0};
+#endif
+
+#ifndef NATIVE_BUILD
+  private:
+    NimBLEAdvertising* adv_{nullptr}; // owned by NimBLEDevice singleton
 #endif
 };

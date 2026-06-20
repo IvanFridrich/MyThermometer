@@ -180,6 +180,7 @@ constexpr uint32_t kReconnectMinMs = 1000;       // backoff start
 constexpr uint32_t kReconnectMaxMs = 30000;      // backoff cap
 constexpr uint32_t kWifiCheckMs    = 2000;       // link supervision period
 constexpr uint8_t  kMaxHttpRoutes  = 16;         // max registered route handlers (HttpServer fake)
+constexpr int8_t   kRssiInvalid    = 127;        // out-of-band RSSI sentinel = "not connected"
 } // namespace net
 
 // ----------------------------------------------------------------------------

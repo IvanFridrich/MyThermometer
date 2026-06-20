@@ -4,6 +4,10 @@
 #include "Config.h"
 #include "result.h"
 
+#ifndef NATIVE_BUILD
+#include <WebServer.h> // Arduino WebServer (plain HTTP) — target build only
+#endif
+
 // Function-pointer type for HTTP request handlers.
 using HttpHandler = void (*)();
 
@@ -37,5 +41,10 @@ class HttpServer {
     bool    running_{false};
     Route   routes_[cfg::net::kMaxHttpRoutes]{};
     uint8_t routeCount_{0};
+#endif
+
+#ifndef NATIVE_BUILD
+  private:
+    WebServer server_; // Arduino WebServer bound to the port at construction
 #endif
 };

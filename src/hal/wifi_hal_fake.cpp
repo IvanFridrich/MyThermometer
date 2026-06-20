@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "Config.h"
 #include "result.h"
 
 Result<void> WifiHal::begin(const char* /*ssid*/, const char* /*password*/) {
@@ -14,7 +15,7 @@ bool WifiHal::isConnected() const {
     return connected_;
 }
 int8_t WifiHal::rssi() const {
-    return rssi_;
+    return connected_ ? rssi_ : cfg::net::kRssiInvalid; // parity with target sentinel
 }
 
 void WifiHal::getIp(char* buf, uint8_t len) const {

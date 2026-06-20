@@ -15,7 +15,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-04 | Detect OneWire CRC/open, flag after 3 consecutive errors | `core/anomaly`, `hal/onewire_bus_target` | Driver returns kSensorOpen (no presence) / kOneWireErr (CRC, all-zero); 85 °C & −127 °C sentinel classification is in `core/anomaly` (ADR-12), `test/test_anomaly`; threshold/recovery `test/test_anomaly` + HW | 2 |
 | FR-05 | Ring buffer 144 records, static RAM | `core/history_buffer` | `test/test_history_buffer` + `static_assert sizeof==6` | 2 |
 | FR-06 | One record = two avg temps + OR flags per 10-min window | `core/history_buffer`, `app/measurement_task` | `test/test_history_buffer` (flags verbatim) + integration | 2 |
-| FR-07 | Diff alarm: \|avg_in−avg_out\| ≥ 2 °C → beep+flag, clear 1.5 °C | `core/alarm_state` | `test/test_alarm_state` (diff hysteresis, both goals) | 2 |
+| FR-07 | Diff alarm: \|avg_out−avg_in\| ≥ 2 °C → beep+flag, clear 1.5 °C | `core/alarm_state`; window recommendation `core/window_advice` (D9) | `test/test_alarm_state` (diff hysteresis, both goals); `test/test_window_advice` (OPEN/CLOSE/NO_CHANGE truth table, 100% cov) | 2 |
 | FR-08 | Fire alarm: instant inner ≥ 45 °C → repeat alarm, clear 43 °C | `core/alarm_state` | `test/test_alarm_state` (fire hysteresis, no flap) | 2 |
 | FR-09 | Sensor fault → distinctive beep + flag + email | `core/alarm_state`, `app/mail_task` | `test/test_alarm_state` (sensor edges) + integration | 2/5 |
 | FR-10 | Fire detection only on inner sensor | `core/alarm_state` | `test/test_alarm_state` (innerRaw drives fire only) | 2 |

@@ -3,6 +3,10 @@
 
 #include "result.h"
 
+#ifndef NATIVE_BUILD
+#include <LiquidCrystal.h> // Arduino LiquidCrystal — target build only
+#endif
+
 // HAL: HD44780 2×8 LCD in 4-bit mode.
 // Target: LiquidCrystal Arduino library (Phase 3).  Fake: in-memory row buffers.
 class Display {
@@ -27,5 +31,10 @@ class Display {
     char    rows_[2][9]{}; // 8 chars + NUL per row
     uint8_t curCol_{0};
     uint8_t curRow_{0};
+#endif
+
+#ifndef NATIVE_BUILD
+  private:
+    LiquidCrystal lcd_; // 4-bit HD44780 driver, constructed from the pin map
 #endif
 };

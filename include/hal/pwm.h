@@ -33,4 +33,10 @@ class Pwm {
     uint16_t lastHz_{0};
     bool     toneActive_{false};
 #endif
+
+#ifndef NATIVE_BUILD
+  private:
+    uint8_t contrastChannel_{0}; // LEDC channel bound in initContrast()
+    uint8_t buzzerChannel_{0};   // LEDC channel bound in initBuzzer()
+#endif
 };

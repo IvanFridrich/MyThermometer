@@ -9,7 +9,7 @@ Phase column: earliest phase where the requirement is satisfied.
 
 | ID    | Requirement (short) | Module(s) | Test method | Phase |
 |-------|---------------------|-----------|-------------|-------|
-| FR-01 | Measure both sensors 1×/min | `app/measurement_task`, `hal/onewire_bus` | HW smoke test (Phase 3) | 3 |
+| FR-01 | Measure both sensors 1×/min | `app/measurement_task`, `hal/onewire_bus_target` | Driver impl (Phase 3, bit-bang); HW smoke test pending; cadence in `app` (Phase 4) | 3 |
 | FR-02 | 10-min moving average per sensor | `core/moving_average` | `test/test_moving_average` (warm-up, wrap, invalid exclusion) | 2 |
 | FR-03 | Detect weird values (-30..80 °C), flag WEIRD_VALUE | `core/anomaly` | `test/test_anomaly` (bounds, sentinel, kTempInvalid) | 2 |
 | FR-04 | Detect OneWire CRC/open, flag after 3 consecutive errors | `core/anomaly`, `hal/onewire_bus` | `test/test_anomaly` (threshold, recovery) + HW (Phase 3) | 2 |
@@ -19,9 +19,9 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-08 | Fire alarm: instant inner ≥ 45 °C → repeat alarm, clear 43 °C | `core/alarm_state` | `test/test_alarm_state` (fire hysteresis, no flap) | 2 |
 | FR-09 | Sensor fault → distinctive beep + flag + email | `core/alarm_state`, `app/mail_task` | `test/test_alarm_state` (sensor edges) + integration | 2/5 |
 | FR-10 | Fire detection only on inner sensor | `core/alarm_state` | `test/test_alarm_state` (innerRaw drives fire only) | 2 |
-| FR-11 | LCD row 1: temps; row 2: rotating pages (IP, uptime, status) | `app/lcd_task`, `hal/display` | HW smoke test | 3 |
+| FR-11 | LCD row 1: temps; row 2: rotating pages (IP, uptime, status) | `app/lcd_task`, `hal/display_target` | Driver impl (Phase 3, LiquidCrystal); pagination in `app` (Phase 4); HW smoke test | 3 |
 | FR-12 | Show IP on boot | `app/lcd_task` | HW smoke test | 4 |
-| FR-13 | Contrast via LEDC PWM | `hal/pwm` | HW smoke test | 3 |
+| FR-13 | Contrast via LEDC PWM | `hal/pwm_target` | Driver impl (Phase 3, LEDC ch1, 8-bit); HW smoke test pending | 3 |
 | FR-14 | Connect to hardcoded SSID from secrets.h | `hal/wifi_hal` | HW integration test | 4 |
 | FR-15 | Reconnect + exponential backoff + LCD "WiFi DN" | `hal/wifi_hal`, `app/web_task` | Integration (disconnect AP) | 4 |
 | FR-16 | mDNS `teplomer.local` | `hal/wifi_hal` | Browser access test | 4 |
@@ -49,7 +49,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | NFR-05 | `-fno-exceptions -fno-rtti`; errors via `Result<T>` | `include/result.h` + all `.cpp` | Build flags; code review | 0 |
 | NFR-06 | No runtime virtual dispatch; link-time seam | HAL headers (no vtable), build_src_filter | Static analysis; code review | 1 |
 | NFR-07 | Core 0: WiFi+BLE; Core 1: sensing+LCD+history | `app/*_task`, `cfg::task::kCore*` | Task affinity review | 4 |
-| NFR-08 | OneWire via RMT; PWM via LEDC | `hal/onewire_bus_target`, `hal/pwm_target` | HW oscilloscope check | 3 |
+| NFR-08 | OneWire via RMT; PWM via LEDC | `hal/onewire_bus_target`, `hal/pwm_target` | **DEVIATION**: OneWire bit-banged not RMT (owner-approved, ADR-10); PWM via LEDC per spec. HW oscilloscope check | 3 |
 | NFR-09 | Stack protection; no secrets in git | Compiler flags; `.gitignore` | Code review + CI secret scan | 0 |
 | NFR-10 | All HW behind HAL; domain testable on host | HAL link-time seam | `pio test -e native` passes without HW | 1 |
 | NFR-11 | clang-format/tidy clean; ASan/UBSan; coverage ≥ 85 % | CI jobs | CI green on every commit | all |

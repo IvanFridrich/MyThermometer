@@ -4,8 +4,13 @@
 #include "result.h"
 #include "types.h"
 
+#ifndef NATIVE_BUILD
+#include <OneWire.h> // paulstoffregen/OneWire — target build only
+#endif
+
 // HAL: DS18B20 on a single-device OneWire bus.
-// Target: RMT-based driver (Phase 3).  Fake: injectable test double.
+// Target: bit-banged paulstoffregen/OneWire driver (see docs/adr-phase3.md ADR-10;
+//         NFR-08 RMT deviation, owner-approved).  Fake: injectable test double.
 class OneWireBus {
   public:
     explicit OneWireBus(uint8_t pin);
@@ -31,5 +36,11 @@ class OneWireBus {
     Status      nextStatus_{Status::kOk};
     uint64_t    nextRomId_{0x2800000000000000ULL};
     uint64_t    lastRomId_{0};
+#endif
+
+#ifndef NATIVE_BUILD
+  private:
+    OneWire ow_;                 // bit-banged 1-Wire master for this bus
+    bool    convStarted_{false}; // read-previous / trigger-next conversion state
 #endif
 };

@@ -16,7 +16,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-05 | Ring buffer 144 records, static RAM | `core/history_buffer` | `test/test_history_buffer` + `static_assert sizeof==6` | 2 |
 | FR-06 | One record = two avg temps + OR flags per 10-min window | `core/history_buffer`, `app/measurement_task` | `test/test_history_buffer` (flags verbatim) + integration | 2 |
 | FR-07 | Diff alarm: \|avg_out−avg_in\| ≥ 2 °C → beep+flag, clear 1.5 °C | `core/alarm_state`; window recommendation `core/window_advice` (D9) | `test/test_alarm_state` (diff hysteresis, both goals); `test/test_window_advice` (OPEN/CLOSE/NO_CHANGE truth table, 100% cov) | 2 |
-| FR-08 | Fire alarm: instant inner ≥ 45 °C → repeat alarm, clear 43 °C | `core/alarm_state` | `test/test_alarm_state` (fire hysteresis, no flap) | 2 |
+| FR-08 | Fire alarm: instant inner ≥ 45 °C → repeat alarm, clear 43 °C | `core/alarm_state`; audio `core/beep_engine` (perfect-fourth fire pattern; re-armed while FIRE persists by the buzzer task, Phase 5) | `test/test_alarm_state` (fire hysteresis, no flap) + `test/test_beep_engine` (pattern timing/expiry, fake clock) | 2 |
 | FR-09 | Sensor fault → distinctive beep + flag + email | `core/alarm_state`, `core/email_policy`, `app/mail_task` | `test/test_alarm_state` (sensor edges) + `test/test_email_policy` (§7 send decision) + integration | 2/5 |
 | FR-10 | Fire detection only on inner sensor | `core/alarm_state` | `test/test_alarm_state` (innerRaw drives fire only) | 2 |
 | FR-11 | LCD row 1: temps; row 2: rotating pages (IP, uptime, status) | `app/lcd_task`, `hal/display_target` | Driver impl (Phase 3, LiquidCrystal); pagination in `app` (Phase 4); HW smoke test | 3 |

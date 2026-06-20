@@ -181,6 +181,10 @@ constexpr uint32_t kReconnectMaxMs = 30000;      // backoff cap
 constexpr uint32_t kWifiCheckMs    = 2000;       // link supervision period
 constexpr uint8_t  kMaxHttpRoutes  = 16;         // max registered route handlers (HttpServer fake)
 constexpr int8_t   kRssiInvalid    = 127;        // out-of-band RSSI sentinel = "not connected"
+// Static scratch buffers for JSON responses (no dynamic allocation). History is
+// sized for kHistoryDepth records of the widest form {"i":-32767,"o":-32767,"f":65535}.
+constexpr uint16_t kJsonCurrentBufSize = 640;
+constexpr uint16_t kJsonHistoryBufSize = 6144;
 } // namespace net
 
 // ----------------------------------------------------------------------------

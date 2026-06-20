@@ -27,11 +27,11 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-16 | mDNS `teplomer.local` | `hal/wifi_hal_target` | Driver impl (Phase 4, ESPmDNS + http service); browser access test | 4 |
 | FR-17 | Single-page web UI with history graph | `web/index.html`, `app/web_task` | Browser test | 7 |
 | FR-18 | uPlot graph with missing-point rendering | `web/app.js` | Browser visual test | 7 |
-| FR-19 | Web shows: uptime, errors, free heap, RSSI, sensor IDs | `web/app.js`, JSON API | Browser test | 7 |
+| FR-19 | Web shows: uptime, errors, free heap, RSSI, sensor IDs | `web/app.js`, `core/json_api` (`/api/current` fields) | `test/test_json_api` (exact shape/values); browser test | 7 |
 | FR-20 | Config via web, persisted in NVS | `hal/nvs_store_target`, `app/web_task` | Driver impl (Phase 4, Preferences); NVS round-trip + browser | 4 |
 | FR-21 | Web actions: restart, test beep, set contrast, test email, status email | `app/web_task` | Browser integration test | 4/5 |
 | FR-22 | Web without authentication (LAN-trusted) | `hal/http_server_target` | Driver impl (Phase 4, plain HTTP no auth); code review + design doc | 4 |
-| FR-23 | JSON API endpoints | `hal/http_server_target`, `app/web_task` | Driver route registration (Phase 4); serializers + handlers in `app` (Phase 4/7) | 4 |
+| FR-23 | JSON API endpoints | `hal/http_server_target`, `core/json_api`, `app/web_task` | `core/json_api` serializers for `/api/current` + `/api/history` with `test/test_json_api` (exact-string, null-on-invalid, bounded-buffer, 88% cov); route registration (Phase 4); handlers wire in `app` | 4 |
 | FR-24 | BLE beacon 5 bursts/min, manufacturer data §6.2 | `hal/ble_advertiser_target`, `core/ble_payload`, `app/ble_task` | Driver impl (Phase 4, NimBLE non-conn); §6.2 encoder `core/ble_payload` with byte-exact `test/test_ble_payload` (100% cov); burst cadence in `app/ble_task`; Python bleak monitor | 4 |
 | FR-25 | UART log 115200, structured format | `core/event_log`, `app/measurement_task` | Terminal observation | 5 |
 | FR-26 | Email on fire + sensor fault, rate-limited 1×/h | `app/mail_task`, `hal/mailer` | Unit test (email logic) + integration | 5 |

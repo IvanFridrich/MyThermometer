@@ -17,7 +17,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-06 | One record = two avg temps + OR flags per 10-min window | `core/history_buffer`, `app/measurement_task` | `test/test_history_buffer` (flags verbatim) + integration | 2 |
 | FR-07 | Diff alarm: \|avg_out−avg_in\| ≥ 2 °C → beep+flag, clear 1.5 °C | `core/alarm_state`; window recommendation `core/window_advice` (D9) | `test/test_alarm_state` (diff hysteresis, both goals); `test/test_window_advice` (OPEN/CLOSE/NO_CHANGE truth table, 100% cov) | 2 |
 | FR-08 | Fire alarm: instant inner ≥ 45 °C → repeat alarm, clear 43 °C | `core/alarm_state` | `test/test_alarm_state` (fire hysteresis, no flap) | 2 |
-| FR-09 | Sensor fault → distinctive beep + flag + email | `core/alarm_state`, `app/mail_task` | `test/test_alarm_state` (sensor edges) + integration | 2/5 |
+| FR-09 | Sensor fault → distinctive beep + flag + email | `core/alarm_state`, `core/email_policy`, `app/mail_task` | `test/test_alarm_state` (sensor edges) + `test/test_email_policy` (§7 send decision) + integration | 2/5 |
 | FR-10 | Fire detection only on inner sensor | `core/alarm_state` | `test/test_alarm_state` (innerRaw drives fire only) | 2 |
 | FR-11 | LCD row 1: temps; row 2: rotating pages (IP, uptime, status) | `app/lcd_task`, `hal/display_target` | Driver impl (Phase 3, LiquidCrystal); pagination in `app` (Phase 4); HW smoke test | 3 |
 | FR-12 | Show IP on boot | `app/lcd_task` | HW smoke test | 4 |
@@ -34,7 +34,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-23 | JSON API endpoints | `hal/http_server_target`, `core/json_api`, `app/web_task` | `core/json_api` serializers for `/api/current` + `/api/history` with `test/test_json_api` (exact-string, null-on-invalid, bounded-buffer, 88% cov); route registration (Phase 4); handlers wire in `app` | 4 |
 | FR-24 | BLE beacon 5 bursts/min, manufacturer data §6.2 | `hal/ble_advertiser_target`, `core/ble_payload`, `app/ble_task` | Driver impl (Phase 4, NimBLE non-conn); §6.2 encoder `core/ble_payload` with byte-exact `test/test_ble_payload` (100% cov); burst cadence in `app/ble_task`; Python bleak monitor | 4 |
 | FR-25 | UART log 115200, structured format | `core/event_log`, `app/measurement_task` | Terminal observation | 5 |
-| FR-26 | Email on fire + sensor fault, rate-limited 1×/h | `app/mail_task`, `hal/mailer` | Unit test (email logic) + integration | 5 |
+| FR-26 | Email on fire + sensor fault, rate-limited 1×/h | `core/email_policy`, `app/mail_task`, `hal/mailer` | `test/test_email_policy` (§7: rising-edge only, 1/interval/type, persistence silent, clear+re-arm, disabled, wrap; 100% cov); SMTP send + integration Phase 5 | 5 |
 | FR-27 | All config fields persistent in NVS, default on empty | `hal/nvs_store_target`, `core/config_model` | Driver impl (Phase 4, Preferences typed get/put); `test/test_config_model` + NvsStoreFake round-trip | 4 |
 | FR-28 | Python bleak monitor decodes advertising packets | `tools/ble_monitor/monitor.py` | Manual Windows test | 7 |
 

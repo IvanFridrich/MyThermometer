@@ -32,7 +32,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-21 | Web actions: restart, test beep, set contrast, test email, status email | `app/web_task` | Browser integration test | 4/5 |
 | FR-22 | Web without authentication (LAN-trusted) | `hal/http_server_target` | Driver impl (Phase 4, plain HTTP no auth); code review + design doc | 4 |
 | FR-23 | JSON API endpoints | `hal/http_server_target`, `app/web_task` | Driver route registration (Phase 4); serializers + handlers in `app` (Phase 4/7) | 4 |
-| FR-24 | BLE beacon 5 bursts/min, manufacturer data §6.2 | `hal/ble_advertiser_target`, `app/ble_task` | Driver impl (Phase 4, NimBLE non-conn); §6.2 encoder is domain (host byte-exact test, pending); Python bleak monitor | 4 |
+| FR-24 | BLE beacon 5 bursts/min, manufacturer data §6.2 | `hal/ble_advertiser_target`, `core/ble_payload`, `app/ble_task` | Driver impl (Phase 4, NimBLE non-conn); §6.2 encoder `core/ble_payload` with byte-exact `test/test_ble_payload` (100% cov); burst cadence in `app/ble_task`; Python bleak monitor | 4 |
 | FR-25 | UART log 115200, structured format | `core/event_log`, `app/measurement_task` | Terminal observation | 5 |
 | FR-26 | Email on fire + sensor fault, rate-limited 1×/h | `app/mail_task`, `hal/mailer` | Unit test (email logic) + integration | 5 |
 | FR-27 | All config fields persistent in NVS, default on empty | `hal/nvs_store_target`, `core/config_model` | Driver impl (Phase 4, Preferences typed get/put); `test/test_config_model` + NvsStoreFake round-trip | 4 |

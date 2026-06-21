@@ -236,9 +236,16 @@ void handleAction() {
             static_cast<uint8_t>(argClamped("contrast", g_webConfig.lcdContrastPwm, 0, 255)));
     } else if (action == "test-email" || action == "status-email") {
         if (!g_webConfig.emailEnabled) {
+            logLine(cfg::log::Level::kWarn, "MAIL", "test email: disabled in config");
             g_server.send(409, "text/plain", "email disabled");
             return;
         }
+        if (!g_wifi.isConnected()) {
+            logLine(cfg::log::Level::kWarn, "MAIL", "test email: WiFi not connected");
+            g_server.send(503, "text/plain", "WiFi not connected");
+            return;
+        }
+        logLine(cfg::log::Level::kInfo, "MAIL", "test email: connecting to SMTP");
         // Manual sends bypass the §7 rate limiter. SMTP can exceed the WDT window,
         // so unsubscribe this (web) task around the blocking send.
         esp_task_wdt_delete(nullptr);
@@ -246,6 +253,8 @@ void handleAction() {
             g_mailer.send(RECIPIENT_EMAIL, "Teplomer: status", "Manual status email").isOk();
         esp_task_wdt_add(nullptr);
         addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
+        logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
+                ok ? "test email: sent" : "test email: FAILED (check SMTP host/creds)");
         g_server.send(ok ? 200 : 502, "text/plain", ok ? "sent" : "send failed");
         return;
     } else if (action == "restart") {

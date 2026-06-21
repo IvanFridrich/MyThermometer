@@ -77,8 +77,8 @@ inline BleAdvertiser bleAdvertiser() {
 // ---------------------------------------------------------------------------
 #ifndef NATIVE_BUILD
 inline Mailer mailer() {
-    return Mailer(secret::kSmtpHost, cfg::email::kSmtpPort, secret::kSmtpUser,
-                  secret::kSmtpPassword, secret::kSmtpFrom);
+    // Credentials are preprocessor macros from secrets.h (see secrets.h.example).
+    return Mailer(SMTP_HOST, cfg::email::kSmtpPort, SMTP_USER, SMTP_PASS, SMTP_USER);
 }
 #endif
 

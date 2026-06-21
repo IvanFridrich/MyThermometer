@@ -38,6 +38,11 @@ jobs:
           key: pio-esp32-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-esp32-
 
+      # secrets.h is git-ignored; the firmware build needs it to exist. Use the
+      # committed template (placeholder creds) — the build only needs it to compile.
+      - name: Provide placeholder secrets.h
+        run: cp include/secrets.h.example include/secrets.h
+
       - name: Build firmware
         run: pio run -e esp32-s3-devkitc-1
 
@@ -179,7 +184,9 @@ jobs:
         # xargs appends files after all args (including after '--'), so we use
         # mapfile + array expansion to put files in the correct position.
         run: |
-          mapfile -t srcs < <(find src/core src/hal -name '*.cpp' 2>/dev/null)
+          # Exclude *_target.cpp: they include Arduino/NimBLE headers and are
+          # linted by the esp32 -Wall -Wextra build, not host clang-tidy.
+          mapfile -t srcs < <(find src/core src/hal -name '*.cpp' ! -name '*_target.cpp' 2>/dev/null)
           if [ ${#srcs[@]} -eq 0 ]; then echo "No source files to check"; exit 0; fi
           clang-tidy-18 \
             --config-file=.clang-tidy \

@@ -242,10 +242,11 @@ void handleApiConfig() {
 void handleAction() {
     const String action = g_server.pathArg(0);
     if (action == "test-beep") {
-        g_beep.playTone(cfg::beep::kTestToneHz, millis());
-    } else if (action == "set-contrast") {
-        g_pwm.setContrastDuty(
-            static_cast<uint8_t>(argClamped("contrast", g_webConfig.lcdContrastPwm, 0, 255)));
+        // g_beep is also written by Core 1; guard the playTone call with g_mux.
+        const uint32_t now = millis();
+        taskENTER_CRITICAL(&g_mux);
+        g_beep.playTone(cfg::beep::kTestToneHz, now);
+        taskEXIT_CRITICAL(&g_mux);
     } else if (action == "test-email" || action == "status-email") {
         if (!g_webConfig.emailEnabled) {
             logLine(cfg::log::Level::kWarn, "MAIL", "test email: disabled in config");
@@ -291,13 +292,17 @@ void handleAction() {
 // avoids the null-terminator issue of slot 0 ('\x00'). '\x01C' would parse as
 // hex 0x1C, so the 'C' is separated via adjacent string literal concatenation.
 static void fmtTempRow(char* buf, size_t bufsz, char prefix, Temperature c100) {
+    int n;
     if (c100 == kTempInvalid) {
-        snprintf(buf, bufsz, "%c  --.-\x01", prefix); // 1 + 2 + 4 + 1 = 8
+        n = snprintf(buf, bufsz, "%c  --.-\x01", prefix); // 1 + 2 + 4 + 1 = 8
     } else {
-        snprintf(buf, bufsz,
-                 "%c%5.1f\x01"
-                 "C",
-                 prefix, c100 / 100.0); // 1+5+1+1 = 8
+        n = snprintf(buf, bufsz,
+                     "%c%5.1f\x01"
+                     "C",
+                     prefix, c100 / 100.0); // 1+5+1+1 = 8
+    }
+    if (n < 0) {
+        buf[0] = '\0';
     }
 }
 
@@ -312,11 +317,17 @@ void renderLcd(const json_api::CurrentStatus& s) {
     // Priority: FIRE! > sensor fault > WiFi down > outer temp.
     char row1[cfg::lcd::kCols + 1];
     if (s.fire) {
-        snprintf(row1, sizeof(row1), "FIRE!   ");
+        if (snprintf(row1, sizeof(row1), "FIRE!   ") < 0) {
+            row1[0] = '\0';
+        }
     } else if (s.sensorFault) {
-        snprintf(row1, sizeof(row1), "SENSOR  ");
+        if (snprintf(row1, sizeof(row1), "SENSOR  ") < 0) {
+            row1[0] = '\0';
+        }
     } else if (!g_wifi.isConnected()) {
-        snprintf(row1, sizeof(row1), "WiFi DN ");
+        if (snprintf(row1, sizeof(row1), "WiFi DN ") < 0) {
+            row1[0] = '\0';
+        }
     } else {
         fmtTempRow(row1, sizeof(row1), 'O', s.outerC100);
     }
@@ -351,8 +362,10 @@ void measurementCycle(uint32_t nowMs) {
     const Temperature innerRaw   = readSensor(g_innerBus, g_innerAnomaly, g_innerAvg, innerFlags);
     (void)readSensor(g_outerBus, g_outerAnomaly, g_outerAvg, outerFlags);
 
-    const Temperature innerAvg = g_innerAvg.average();
-    const Temperature outerAvg = g_outerAvg.average();
+    // Use kTempInvalid until both windows are fully populated (FR-02/FR-07: diff alarm
+    // is defined over exactly 10 samples; a partial average could produce false trips).
+    const Temperature innerAvg = g_innerAvg.isFull() ? g_innerAvg.average() : kTempInvalid;
+    const Temperature outerAvg = g_outerAvg.isFull() ? g_outerAvg.average() : kTempInvalid;
     const EventFlags  flags    = static_cast<EventFlags>(innerFlags | outerFlags);
 
     const MeasurementSnapshot ms{innerRaw, innerAvg, outerAvg, flags};
@@ -573,17 +586,31 @@ void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
     if (!fireDue && !sensorDue) {
         return;
     }
-    const auto        type = fireDue ? email_policy::Type::kFire : email_policy::Type::kSensorFault;
-    const char* const subject = fireDue ? "Teplomer: POZAR" : "Teplomer: porucha cidla";
-    esp_task_wdt_delete(nullptr); // SMTP can exceed the WDT window
-    const bool ok = g_mailer.send(RECIPIENT_EMAIL, subject, buildAlarmBody(s, fireDue)).isOk();
-    esp_task_wdt_add(nullptr);
-    if (ok) {
-        g_email.markSent(type, nowMs); // advance the rate-limit anchor on success only
+    // Both types have independent rate limiters and independent edges, so send
+    // each separately when due (e.g., a sensor detach during a fire triggers both).
+    esp_task_wdt_delete(nullptr); // SMTP can exceed the WDT window; unsubscribe for the duration
+    if (fireDue) {
+        const bool ok =
+            g_mailer.send(RECIPIENT_EMAIL, "Teplomer: POZAR", buildAlarmBody(s, true)).isOk();
+        if (ok) {
+            g_email.markSent(email_policy::Type::kFire, nowMs);
+        }
+        addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
+        logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
+                ok ? "alarm email sent (fire)" : "alarm email failed (fire)");
     }
-    addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
-    logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
-            ok ? "alarm email sent" : "alarm email failed");
+    if (sensorDue) {
+        const bool ok =
+            g_mailer.send(RECIPIENT_EMAIL, "Teplomer: porucha cidla", buildAlarmBody(s, false))
+                .isOk();
+        if (ok) {
+            g_email.markSent(email_policy::Type::kSensorFault, nowMs);
+        }
+        addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
+        logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
+                ok ? "alarm email sent (sensor)" : "alarm email failed (sensor)");
+    }
+    esp_task_wdt_add(nullptr);
 }
 
 [[noreturn]] void core0Task(void*) {

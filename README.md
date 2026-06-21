@@ -1,126 +1,332 @@
-# ESP32 Teplomer — Dev prostředí a workflow
+# ESP32 Teplomer — Dvoukanálový teploměr s WiFi/BLE/e-mailem
 
-Tento repozitář obsahuje fázové zadání (`SPECIFICATION.md`), globální pravidla
-(`CLAUDE.md`) a kompletní sadu 12 agentů (`.claude/agents/`) a 20 skillů (`.claude/skills/`)
-pro vývoj s **Claude Code**. Tady je, co si nainstalovat a jak to celé spolu hraje.
-
----
-
-## 1. Co nainstalovat (Windows)
-
-### Základ
-- **VS Code** (poslední verze).
-- **Python 3.11+** (pro PlatformIO core a pro `bleak` monitor).
-- **Git**.
-- **Node.js LTS** + **Claude Code** (`npm i -g @anthropic-ai/claude-code`).
-
-### Toolchain pro firmware
-- **PlatformIO IDE** (VS Code rozšíření) — stáhne si vlastní ESP32 Arduino toolchain, nemusíš řešit ručně. Cílový manufacturer/flash řeší PlatformIO.
-
-### Host toolchain pro unit testy + statickou analýzu + coverage (doporučení)
-Tady je tvoje otázka „MSYS2 pro code coverage?". Odpověď: **můžeš, ale nedoporučuju
-tahat druhý toolchain.** Nejčistší je **jeden LLVM/Clang toolchain pro host**, kterým
-pokryješ úplně všechno:
-
-- **LLVM for Windows** (clang, clang-tidy, clang-format, llvm-cov, llvm-profdata) — `winget install LLVM.LLVM`.
-  - unit testy: `clang++`
-  - statická analýza: `clang-tidy`
-  - sanitizery: `-fsanitize=address,undefined` (ASan/UBSan jdou s clang na Windows)
-  - **coverage:** `-fprofile-instr-generate -fcoverage-mapping` → `llvm-profdata merge` → `llvm-cov export -format=lcov` (lcov čte Coverage Gutters ve VS Code)
-- **include-what-you-use (IWYU)** — buď z LLVM distribuce, nebo build ze zdrojů proti nainstalovanému LLVM.
-- (volitelně) **cppcheck** — `winget install Cppcheck.Cppcheck`, doplňkový lint, který umí `pio check`.
-
-**MSYS2 cesta (alternativa):** `pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-gcc-libs lcov` → build s `--coverage` (gcov) → `gcovr`/`lcov` → HTML/lcov report. Funguje, ale duplikuje toolchain (clang-tidy/ASan stejně poběží přes clang). Pokud netrváš na gcov, **zůstaň u LLVM** a MSYS2 vůbec neinstaluj.
-
-> Shrnutí: **LLVM = jeden toolchain pro testy + tidy + ASan + coverage.** MSYS2 jen
-> když chceš gcov-based coverage, což tady není potřeba.
+Embedded firmware pro ESP32-S3. Měří teplotu na dvou DS18B20 čidlech,
+zobrazuje ji na 2×8 LCD, hlídá požár a klimatický rozdíl, posílá e-mail při
+alarmu, vysílá BLE beacon a poskytuje HTTP webové rozhraní s historickým grafem.
 
 ---
 
-## 2. VS Code rozšíření (doporučená sada)
+## Obsah
 
-| Rozšíření | K čemu |
-|-----------|--------|
-| **PlatformIO IDE** | build/upload/monitor/test firmware, `pio check` |
-| **clangd** (llvm-vs-code-extensions.vscode-clangd) | IntelliSense + clang-tidy inline |
-| **C/C++** (ms-vscode.cpptools) | debugger; pozn. nech zapnutý jen debug, IntelliSense řeš přes clangd ať si nelezou do zelí |
-| **Coverage Gutters** | barevné pokrytí v editoru z lcov |
-| **CMake Tools** | volitelně pro native test build mimo PlatformIO |
-| **Even Better TOML** | `platformio.ini` |
-| **Error Lens** | inline chyby/warningy |
-| **GitLens** | historie/blame |
-| **EditorConfig for VS Code** | `.editorconfig` |
-| **markdownlint** | konzistentní docs |
-| (volitelně) **Doxygen Documentation Generator** | komentáře |
-
-Tip: ať se neperou dva IntelliSense enginy, v nastavení nech `C_Cpp.intelliSenseEngine: disabled` a používej clangd.
+1. [Hardware — zapojení](#1-hardware--zapojení)
+2. [První spuštění — nastavení secrets a build](#2-první-spuštění--nastavení-secrets-a-build)
+3. [Upload firmware a UART monitor](#3-upload-firmware-a-uart-monitor)
+4. [Webové rozhraní](#4-webové-rozhraní)
+5. [BLE monitor (Python, Windows)](#5-ble-monitor-python-windows)
+6. [UART log](#6-uart-log)
+7. [Konfigurace a alarmy](#7-konfigurace-a-alarmy)
+8. [Vývojové prostředí a workflow](#8-vývojové-prostředí-a-workflow)
 
 ---
 
-## 3. SonarQube — „pokud free" (ověřený stav, 2026)
+## 1. Hardware — zapojení
 
-- **SonarQube Community Build** (dřív Community Edition) je zdarma a open-source, ale **neanalyzuje C/C++** — C-family analyzer je až v komerční Developer Edition+. Pro tenhle projekt tedy self-hosted free build C++ nepokryje.
-- **SonarQube Cloud** (dřív SonarCloud) je **zdarma pro open-source / veřejné repo** a C/C++ umí; free plán pokrývá i privátní repo do ~50k řádků. Pro free C++ analýzu je tohle realistická cesta: dej repo na GitHub jako public a napoj SonarQube Cloud.
-- Pokud nechceš veřejné repo a chceš zdarma, použij místo SonaruQube kombinaci **clang-tidy + cppcheck + clang-analyzer**, která pro embedded C++ pokryje drtivou většinu toho, co by Sonar hlásil.
+### Komponenty
 
-> Stav free tierů a jazykové pokrytí se občas mění — před nastavením si ověř aktuální
-> podmínky na webu Sonaru. Skill `static-analysis-coverage` popisuje napojení.
+| Komponenta | Poznámka |
+|---|---|
+| ESP32-S3 DevKitC-1 (nebo kompatibilní) | bez PSRAM |
+| 2× DS18B20 teploměr | každé na vlastním GPIO |
+| 2× pull-up 4,7 kΩ (3,3 V → data) | jeden na každou OneWire sběrnici |
+| HD44780 kompatibilní LCD 2×8 znaků | 4-bit mód |
+| Pasivní bzučák + NPN tranzistor (BC547 apod.) | báze přes ~1 kΩ |
+| RC filtr pro LCD kontrast | ~1 kΩ + 10 µF na GPIO 13 → V0 |
+
+### Schéma zapojení
+
+```
+ESP32-S3 DevKitC-1          DS18B20 (inner — fire sensor)
+   GPIO 15 ────────────────── DATA ─── 4,7 kΩ ─── 3V3
+                                        VDD ─────── 3V3
+                                        GND ─────── GND
+
+                             DS18B20 (outer — ambient sensor)
+   GPIO 14 ────────────────── DATA ─── 4,7 kΩ ─── 3V3
+                                        VDD ─────── 3V3
+                                        GND ─────── GND
+
+                             HD44780 LCD (4-bit)
+   GPIO 42 ────────────────── RS
+   GPIO 41 ────────────────── E
+   GPIO  5 ────────────────── D4
+   GPIO 18 ────────────────── D5
+   GPIO 38 ────────────────── D6   (GPIO 19 = USB D- na WROOM — zakázán)
+   GPIO 21 ────────────────── D7
+   GND     ────────────────── RW   (jen zápis)
+   3V3     ────────────────── VDD, A (backlight+)
+   GND     ────────────────── VSS, K (backlight-)
+
+                             LCD kontrast (RC low-pass → V0)
+   GPIO 13 ── 1 kΩ ── V0 ─── 10 µF ─── GND   (LEDC PWM, 25 kHz, 8-bit)
+
+                             Pasivní bzučák (přes NPN)
+   GPIO  9 ── 1 kΩ ── báze NPN
+              kolektor ──── bzučák ──── 3V3
+              emitor   ──── GND
+```
+
+> Piny jsou definovány v [src/Config.h](src/Config.h) (namespace `cfg::pin`).
+> Pokud měníš zapojení, uprav jen tamní konstanty.
 
 ---
 
-## 4. Bezpečnostní poznámka k secrets
+## 2. První spuštění — nastavení secrets a build
 
-WiFi heslo a SMTP login jsou „hardcoded v firmware", ale **nikdy
-necommittuj** — patří do `secrets.h`, který je v `.gitignore`. V repu je jen
-`secrets.h.example` se zástupnými hodnotami. Sken `git status` před každým commitem.
+### Krok 1 — Vytvořit `include/secrets.h`
+
+Soubor `include/secrets.h` je v `.gitignore` a nikdy se nesmí commitovat.
+
+```sh
+cp include/secrets.h.example include/secrets.h
+```
+
+Vyplň reálné hodnoty:
+
+```cpp
+#define WIFI_SSID     "NazevSite"
+#define WIFI_PASSWORD "HesloSite"
+#define SMTP_HOST     "smtp.gmail.com"
+#define SMTP_USER     "tvuj@gmail.com"
+#define SMTP_PASS     "aplikacni-heslo-gmail"  // App Password, ne přihlašovací heslo!
+#define RECIPIENT_EMAIL "prijemdce@example.com"
+```
+
+> **Gmail App Password:** Správa účtu Google → Bezpečnost → Dvoufázové ověření → Hesla aplikací.
+
+### Krok 2 — Nainstalovat PlatformIO
+
+```sh
+# VS Code rozšíření "PlatformIO IDE" — stáhne toolchain automaticky
+# nebo: pip install platformio
+```
+
+### Krok 3 — Sestavit firmware
+
+```sh
+pio run -e esp32-s3-devkitc-1
+```
+
+Výstup: `RAM: 20.x%  Flash: ~39%` — firmware se vejde i s rezervou.
 
 ---
 
-## 5. Jak spolu hrají agenti a skilly
+## 3. Upload firmware a UART monitor
 
-- **Skilly** = znalostní balíčky „jak na to" (postupy, API, gotchas). Aktivují se podle popisu, když je úkol relevantní. Nepíšou kód samy — řídí, jak ho psát správně.
-- **Subagenti** = izolovaní pracovníci s vlastním kontextem a omezenými nástroji. Hlavní session jim deleguje úzké úkoly a dostane zpět jen souhrn.
-- **CLAUDE.md** = invarianty, které platí všude.
-- **SPECIFICATION.md** = co se staví a v jakých fázích.
+```sh
+# Nahrát firmware
+pio run -e esp32-s3-devkitc-1 -t upload
 
-Mentálně: `architect` navrhne → engineer agenti (s pomocí skillů) implementují →
-reviewer agenti (read-only) najdou nálezy → engineer opraví → gate fáze se uzavře.
+# Sledovat sériový výstup (115200 Bd)
+pio device monitor -b 115200
+```
 
----
+Po bootu UART výpis vypadá přibližně takto:
 
-## 6. Doporučený workflow s Claude Code
-
-1. Spusť hlavní session na silném modelu (Opus) pro koordinaci a syntézu.
-2. Jeď **fázi po fázi** dle `SPECIFICATION.md §9`. Pro každou fázi:
-   - „Use the `architect` subagent to …" (jen pokud fáze mění rozhraní),
-   - „Use the `<engineer>` subagent to implement … per SPECIFICATION §X using skill `<skill>`",
-   - „Use the `code-reviewer` and `<specialized-reviewer>` subagents on the diff",
-   - oprav nálezy, pak teprve další fáze.
-3. Reviewery drž **read-only** (žádné Write/Edit) — oddělení autora a recenzenta zvyšuje kvalitu.
-4. Před uzavřením fáze zkontroluj její Definition of Done.
-
-### Příklady promptů
-- `Use the architect subagent to produce the module ADR for Phase 1 per SPECIFICATION.md §4.`
-- `Use the firmware-engineer subagent to implement core/alarm_state per SPECIFICATION.md §FR-07,FR-08 and the cpp-review-checklist skill. Then use the test-engineer subagent to write doctest unit tests targeting ≥85% coverage.`
-- `Use the safety-security-reviewer subagent to audit the WDT and brownout setup against NFR-02/NFR-03.`
+```
+[+   0][I][BOOT] thermometer starting
+[+  12][I][NVS ] config loaded from NVS
+[+  14][I][PWM ] contrast ch=4 duty=128
+[+  16][I][LCD ] init ok
+[+  18][I][WIFI] connecting to MySSID...
+[+3422][I][WIFI] connected, IP=192.168.1.105, RSSI=-58
+[+3423][I][WEB ] HTTP server started on port 80
+[+3424][I][BLE ] NimBLE advertiser started
+[+ 860][I][MEAS] inner=23.45 C  outer=21.00 C
+```
 
 ---
 
-## 7. Struktura repozitáře (cílová)
+## 4. Webové rozhraní
+
+Po připojení k WiFi je zařízení dostupné na:
+
+- **`http://teplomer.local`** — mDNS hostname (funguje bez znalosti IP)
+- **`http://<IP>`** — IP adresa zobrazená na LCD a v UART logu po připojení
+
+### Co stránka ukazuje
+
+| Sekce | Obsah |
+|---|---|
+| Teploty | Vnitřní, venkovní, rozdíl; doporučení okna (OTEVŘÍT / ZAVŘÍT / BEZE ZMĚNY) |
+| Alarmy | Požár, porucha čidla, překročení rozdílu |
+| Graf | 24 h historie vzorků (1/10 min), přerušení čáry = chybějící vzorek |
+| Diagnostika | Uptime, RSSI, free heap, min-free-heap, ROM ID čidel |
+| Konfigurace | Práh požáru, práh rozdílu (+ hystereze), kontrast LCD, bzučák on/off, e-mail on/off |
+| Akce | Restart, test bzučáku, nastavit kontrast živě, poslat testovací e-mail, vyžádat status e-mail |
+
+### API endpointy (pro vlastní integraci)
+
+```
+GET  /api/current   → JSON aktuální stav + konfigurace
+GET  /api/history   → JSON kruhový buffer (144 vzorků, stride_s=600)
+POST /api/config    → uložit konfiguraci do NVS
+POST /api/action/<akce>  → restart | test-beep | set-contrast | test-email | status-email
+```
+
+---
+
+## 5. BLE monitor (Python, Windows)
+
+Skript v [tools/ble_monitor/](tools/ble_monitor/) skenuje BLE advertising pakety
+a dekóduje payload (obě teploty + příznaky) shodný s firmwarem (§6.2).
+
+### Instalace
+
+```sh
+cd tools/ble_monitor
+pip install -r requirements.txt   # nebo: pip install bleak
+```
+
+### Spuštění
+
+```sh
+python monitor.py                  # tisk na konzoli
+python monitor.py --log data.csv   # + append do CSV souboru
+python monitor.py --selftest       # ověření dekodéru bez rádia
+```
+
+### Výstup
+
+```
+Scanning for company ID 0xFFFF ... Ctrl-C to stop
+[2026-06-21 10:04:11] inner=23.45°C outer=21.00°C flags=INNER_VALID,OUTER_VALID seq=42 rssi=-67dBm
+[2026-06-21 10:04:11] inner=23.45°C outer=21.00°C flags=INNER_VALID,OUTER_VALID seq=43 rssi=-65dBm
+```
+
+Zařízení vysílá 5 burstů každou minutu. Každý burst = 5× stejný paket á 100 ms.
+
+---
+
+## 6. UART log
+
+Format: `[+uptime_ms][LEVEL][MODULE] zpráva`
+
+| Level | Kdy |
+|---|---|
+| `T` TRACE | podrobné ladění |
+| `D` DEBUG | normální tok |
+| `I` INFO  | klíčové události (připojení, teplota, alarm) |
+| `W` WARN  | nestandardní stav (bez hardware chyby) |
+| `E` ERROR | chyby (selhání e-mailu, NVS, OneWire) |
+
+Minimální logovaný level je nastaven v [src/Config.h](src/Config.h) `cfg::log::kMinLevel` (default: DEBUG).
+
+---
+
+## 7. Konfigurace a alarmy
+
+Všechna nastavení se ukládají do NVS flash a přežijí restart. Defaultní hodnoty:
+
+| Parametr | Default | Poznámka |
+|---|---|---|
+| Práh požáru | 45,0 °C | okamžitá hodnota inner |
+| Hystereze požáru | 2,0 °C | odezní při ≤ 43 °C |
+| Práh rozdílu | 2,0 °C | 10min průměr \|out−in\| |
+| Hystereze rozdílu | 0,5 °C | odezní při ≤ 1,5 °C |
+| Cíl větrání | CoolRoom | OPEN = venku chladněji |
+| Kontrast LCD | 128/255 | |
+| Bzučák | zapnutý | |
+| E-mail | zapnutý | |
+
+### E-mailová logika
+
+- Automatický e-mail se pošle při **náběžné hraně** požáru nebo poruchy čidla.
+- Max 1 automatický e-mail / 1 h / typ alarmu.
+- Perzistence alarmu sama o sobě žádný e-mail neposílá.
+- Manuální „test e-mail" / „status e-mail" z webu obchází rate-limit.
+
+### LCD displej
+
+- **Řádek 1:** vnitřní teplota (`I: 23.4°C`)
+- **Řádek 2:** venkovní teplota (`O: 21.0°C`) — přepíše se alarmem (`FIRE!`, `SENSOR`, `WiFi DN`)
+
+---
+
+## 8. Vývojové prostředí a workflow
+
+### Co nainstalovat (Windows)
+
+- **PlatformIO IDE** (VS Code rozšíření) — spravuje ESP32 toolchain automaticky
+- **LLVM for Windows** — pro host testy, statickou analýzu a coverage:
+  ```sh
+  winget install LLVM.LLVM
+  ```
+- **Python 3.11+** — pro PlatformIO a BLE monitor
+- (volitelně) **cppcheck** — `winget install Cppcheck.Cppcheck`
+
+### Build příkazy
+
+```sh
+# Firmware (ESP32-S3)
+pio run -e esp32-s3-devkitc-1
+
+# Upload + monitor
+pio run -e esp32-s3-devkitc-1 -t upload
+pio device monitor -b 115200
+
+# Host unit testy (native, bez ASan)
+pio test -e native
+
+# Host unit testy s ASan/UBSan + HTML coverage report
+.\scripts\coverage.ps1
+
+# Statická analýza (clang-tidy + cppcheck)
+pio check
+
+# Jeden konkrétní test soubor
+pio test -e native -f test_alarm_state
+```
+
+### Struktura repozitáře
+
 ```
 .
-├── CLAUDE.md
-├── SPECIFICATION.md
-├── README.md
-├── platformio.ini
-├── .clang-format / .clang-tidy / .editorconfig / .gitignore
-├── secrets.h.example
-├── include/            (veřejné hlavičky modulů)
-├── src/                (implementace; HW moduly mají *_target.cpp a *_fake.cpp)
-├── test/               (host unit testy, doctest)
-├── web/                (index.html, app.js — embedováno do firmware)
-├── tools/ble_monitor/  (Python bleak skript)
-└── .claude/
-    ├── agents/         (12 subagentů)
-    └── skills/         (20 skillů)
+├── CLAUDE.md            pravidla pro AI agenty
+├── SPECIFICATION.md     požadavky, architektura, fázový plán
+├── platformio.ini       build konfigurace (esp32-s3 + native)
+├── include/             veřejné hlavičky modulů
+│   └── secrets.h.example  šablona pro WiFi/SMTP přihlašovací údaje
+├── src/
+│   ├── Config.h         JEDINÝ ZDROJ PRAVDY pro konstanty (cfg::*)
+│   ├── core/            doménová logika (bez HW; testovatelná na hostu)
+│   ├── hal/             HAL rozhraní + *_target.cpp + *_fake.cpp
+│   └── main.cpp         kompozice tasků, wiring, FreeRTOS
+├── test/                host unit testy (doctest, 13 sad)
+├── web/                 index.html + app.js (embedováno do PROGMEM)
+├── tools/ble_monitor/   Python bleak skript (FR-28)
+├── docs/
+│   ├── traceability.md  FR/NFR → modul → test
+│   └── adr-phase*.md   architektonická rozhodnutí
+└── scripts/
+    └── coverage.ps1     ASan/UBSan + llvm-cov HTML report
 ```
+
+### Architektura (třívrstvý design)
+
+```
+app/    — kompozice tasků, FreeRTOS (smí záviset na core/ a hal/)
+core/   — čistá doménová logika (bez HW; plně testovatelná na hostu)
+hal/    — HAL rozhraní; dvě implementace linkované staticky:
+              *_target.cpp  (ESP32-S3, Arduino/ESP-IDF)
+              *_fake.cpp    (host, pro unit testy)
+```
+
+Žádné virtuální funkce, žádné `#ifdef` v doménovém kódu.
+PlatformIO volí správnou implementaci přes `build_src_filter`.
+
+### Workflow s AI agenty
+
+```
+architect navrhne rozhraní
+  → engineer agenti implementují (s pomocí skillů v .claude/skills/)
+  → reviewer agenti auditují (read-only, hlásí nálezy)
+  → engineer opraví → gate fáze se uzavře
+```
+
+Viz `SPECIFICATION.md §9` a `.claude/agents/` pro 12 specializovaných agentů.
+
+### Bezpečnostní poznámka
+
+WiFi heslo a SMTP údaje jsou v `include/secrets.h` (v `.gitignore`).
+**Nikdy secrets.h necommituj.** V repu je jen `secrets.h.example`.
+Web rozhraní je **bez autentizace** (LAN-trusted — akceptované riziko per FR-22).

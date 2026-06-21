@@ -1,6 +1,7 @@
-// Phase 3 will connect this to Arduino millis().
-#include "clock.h"
+﻿#include "clock.h"
+
+#include <Arduino.h>
 
 uint32_t Clock::millis() {
-    return 0;
+    return ::millis();
 }

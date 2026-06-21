@@ -80,9 +80,10 @@ WebServer g_server(cfg::net::kHttpPort);
 portMUX_TYPE            g_mux = portMUX_INITIALIZER_UNLOCKED;
 json_api::CurrentStatus g_snapshot;
 
-// Static scratch for JSON responses (no heap; one writer per buffer at a time).
+// Static scratch for JSON responses and email bodies (no heap; one writer each).
 char g_jsonCurrent[cfg::net::kJsonCurrentBufSize];
 char g_jsonHistory[cfg::net::kJsonHistoryBufSize];
+char g_emailBody[cfg::email::kBodyBufSize]; // written only on Core 0 web task
 // Copy of the ring buffer taken under g_mux so /api/history serializes outside the
 // critical section (the serialize loop is too long to hold the spinlock).
 HistoryBuffer g_histScratch;
@@ -92,6 +93,13 @@ HistoryBuffer g_histScratch;
 EventFlags g_windowFlags = 0;
 
 uint8_t g_bleSeq = 0;
+
+// Static task stacks + TCBs (NFR-04: no heap in steady state; NFR-07).
+// StackType_t is uint8_t on Xtensa/ESP32-S3, so array sizes equal byte counts.
+StaticTask_t s_core0Tcb;
+StaticTask_t s_core1Tcb;
+StackType_t  s_core0Stack[cfg::task::kStackWeb];
+StackType_t  s_core1Stack[cfg::task::kStackSensor];
 
 // NVS keys (§6.4).
 constexpr char kKeyBeeper[]   = "beeper";
@@ -149,6 +157,10 @@ void addWindowFlags(EventFlags f) {
     g_windowFlags = static_cast<EventFlags>(g_windowFlags | f);
     taskEXIT_CRITICAL(&g_mux);
 }
+
+// Forward declarations for email body builders (defined after the BLE section).
+static const char* buildAlarmBody(const json_api::CurrentStatus& s, bool isFire);
+static const char* buildStatusBody(const json_api::CurrentStatus& s);
 
 json_api::CurrentStatus snapshotCopy() {
     json_api::CurrentStatus copy;
@@ -248,9 +260,10 @@ void handleAction() {
         logLine(cfg::log::Level::kInfo, "MAIL", "test email: connecting to SMTP");
         // Manual sends bypass the §7 rate limiter. SMTP can exceed the WDT window,
         // so unsubscribe this (web) task around the blocking send.
+        const json_api::CurrentStatus snap = snapshotCopy();
         esp_task_wdt_delete(nullptr);
         const bool ok =
-            g_mailer.send(RECIPIENT_EMAIL, "Teplomer: status", "Manual status email").isOk();
+            g_mailer.send(RECIPIENT_EMAIL, "Teplomer: status", buildStatusBody(snap)).isOk();
         esp_task_wdt_add(nullptr);
         addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
         logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
@@ -470,6 +483,82 @@ void sendBleBeacon(const json_api::CurrentStatus& s) {
     g_ble.burst(cfg::ble::kBurstsPerMinute, cfg::ble::kBurstSpacingMs);
 }
 
+// ---------------------------------------------------------------------------
+// Email body builders (Core 0 only; write into g_emailBody).
+// ---------------------------------------------------------------------------
+// Format one temperature value; buf must be at least 10 bytes.
+static void fmtTemp(char* buf, size_t sz, Temperature c100) {
+    if (c100 == kTempInvalid) {
+        if (snprintf(buf, sz, "N/A") < 0) {
+            buf[0] = '\0';
+        }
+    } else {
+        if (snprintf(buf, sz, "%.1f C", c100 / 100.0) < 0) {
+            buf[0] = '\0';
+        }
+    }
+}
+
+static const char* buildAlarmBody(const json_api::CurrentStatus& s, bool isFire) {
+    char ip[16];
+    g_wifi.getIp(ip, sizeof(ip));
+    char tIn[10];
+    char tOut[10];
+    fmtTemp(tIn, sizeof(tIn), s.innerC100);
+    fmtTemp(tOut, sizeof(tOut), s.outerC100);
+    const uint32_t upH = s.uptimeS / 3600UL;
+    const uint32_t upM = (s.uptimeS % 3600UL) / 60UL;
+    const int      n   = snprintf(g_emailBody, sizeof(g_emailBody),
+                                  "=== TEPLOMER ALARM ===\r\n\r\n"
+                                         "Type:   %s\r\n\r\n"
+                                         "Inner:  %s\r\n"
+                                         "Outer:  %s\r\n\r\n"
+                                         "Uptime: %luh %02lum\r\n"
+                                         "IP:     %s\r\n"
+                                         "RSSI:   %d dBm\r\n"
+                                         "Heap:   %lu B\r\n",
+                           isFire ? "FIRE ALARM" : "Sensor fault", tIn, tOut,
+                                  static_cast<unsigned long>(upH), static_cast<unsigned long>(upM), ip,
+                                  static_cast<int>(s.rssi), static_cast<unsigned long>(s.freeHeap));
+    if (n < 0) {
+        g_emailBody[0] = '\0';
+    }
+    return g_emailBody;
+}
+
+static const char* buildStatusBody(const json_api::CurrentStatus& s) {
+    char ip[16];
+    g_wifi.getIp(ip, sizeof(ip));
+    char tIn[10];
+    char tOut[10];
+    fmtTemp(tIn, sizeof(tIn), s.innerC100);
+    fmtTemp(tOut, sizeof(tOut), s.outerC100);
+    const uint32_t upH = s.uptimeS / 3600UL;
+    const uint32_t upM = (s.uptimeS % 3600UL) / 60UL;
+    const int      n   = snprintf(g_emailBody, sizeof(g_emailBody),
+                                  "=== TEPLOMER STATUS ===\r\n\r\n"
+                                         "Inner:  %s\r\n"
+                                         "Outer:  %s\r\n"
+                                         "Fire:   %s  Sensor: %s  Diff: %s\r\n\r\n"
+                                         "Fire thr:  %.1f C / hyst %.1f C\r\n"
+                                         "Diff thr:  %.1f C / hyst %.1f C\r\n\r\n"
+                                         "Uptime: %luh %02lum\r\n"
+                                         "IP:     %s\r\n"
+                                         "RSSI:   %d dBm\r\n"
+                                         "Heap:   %lu B\r\n"
+                                         "Email:  %s  Beeper: %s\r\n",
+                                  tIn, tOut, s.fire ? "YES" : "no", s.sensorFault ? "YES" : "no",
+                           s.diffAlarm ? "YES" : "no", s.fireThrC100 / 100.0,
+                                  s.fireHystC100 / 100.0, s.diffThrC100 / 100.0, s.diffHystC100 / 100.0,
+                                  static_cast<unsigned long>(upH), static_cast<unsigned long>(upM), ip,
+                                  static_cast<int>(s.rssi), static_cast<unsigned long>(s.freeHeap),
+                           s.emailEnabled ? "on" : "off", s.beeperEnabled ? "on" : "off");
+    if (n < 0) {
+        g_emailBody[0] = '\0';
+    }
+    return g_emailBody;
+}
+
 void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
     // Only attempt while connected: an offline attempt would just fail, and we
     // must not let it stand in for a real notification (the policy anchors on
@@ -487,7 +576,7 @@ void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
     const auto        type = fireDue ? email_policy::Type::kFire : email_policy::Type::kSensorFault;
     const char* const subject = fireDue ? "Teplomer: POZAR" : "Teplomer: porucha cidla";
     esp_task_wdt_delete(nullptr); // SMTP can exceed the WDT window
-    const bool ok = g_mailer.send(RECIPIENT_EMAIL, subject, "Alarm raised").isOk();
+    const bool ok = g_mailer.send(RECIPIENT_EMAIL, subject, buildAlarmBody(s, fireDue)).isOk();
     esp_task_wdt_add(nullptr);
     if (ok) {
         g_email.markSent(type, nowMs); // advance the rate-limit anchor on success only
@@ -589,21 +678,23 @@ void setup() {
 
     g_beep.playTone(cfg::beep::kBootToneHz, millis());
 
-    // Task WDT: 8 s, panic-reset (NFR-02). Each task registers + feeds itself.
-    // The SDK may have already started the TWDT at boot; a second init then returns
-    // ESP_ERR_INVALID_STATE without re-applying our timeout/panic. Log that so the
-    // on-HW WDT acceptance test (A8) checks the *actual* timeout. (Forcing exactly
-    // 8 s + panic is an sdkconfig task — Phase 6 hardening.)
+    // Task WDT: 8 s, panic-reset (NFR-02). arduino-esp32 may already have called
+    // esp_task_wdt_init() in initArduino() with its own timeout. Deinit first so
+    // our call unconditionally applies the correct timeout and panic flag.
+    (void)esp_task_wdt_deinit();
     const esp_err_t wdtErr =
         esp_task_wdt_init(cfg::safety::kWdtTimeoutMs / 1000U, cfg::safety::kPanicOnWdt);
     if (wdtErr != ESP_OK) {
-        logLine(cfg::log::Level::kWarn, "WDT", "init not applied (SDK default timeout in effect)");
+        logLine(cfg::log::Level::kWarn, "WDT", "init failed — SDK default in effect");
     }
 
-    xTaskCreatePinnedToCore(core1Task, "core1", cfg::task::kStackSensor, nullptr,
-                            cfg::task::kPrioSensor, nullptr, cfg::task::kCoreApp);
-    xTaskCreatePinnedToCore(core0Task, "core0", cfg::task::kStackWeb, nullptr, cfg::task::kPrioWeb,
-                            nullptr, cfg::task::kCoreNet);
+    // Static stacks and TCBs: no heap allocation at task creation time (NFR-04/07).
+    xTaskCreateStaticPinnedToCore(core1Task, "core1", cfg::task::kStackSensor, nullptr,
+                                  cfg::task::kPrioSensor, s_core1Stack, &s_core1Tcb,
+                                  cfg::task::kCoreApp);
+    xTaskCreateStaticPinnedToCore(core0Task, "core0", cfg::task::kStackWeb, nullptr,
+                                  cfg::task::kPrioWeb, s_core0Stack, &s_core0Tcb,
+                                  cfg::task::kCoreNet);
 }
 
 void loop() {

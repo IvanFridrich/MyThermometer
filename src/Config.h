@@ -13,6 +13,7 @@
 // =============================================================================
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace cfg {
@@ -199,6 +200,7 @@ namespace email {
 constexpr uint32_t kMinIntervalMs = 60UL * 60UL * 1000UL; // 1 hour
 constexpr uint16_t kSmtpPort      = 465;                  // SSL (Gmail app password)
 constexpr uint32_t kSendTimeoutMs = 15000;
+constexpr size_t   kBodyBufSize   = 512; // email body scratch buffer (plain-text)
 } // namespace email
 
 // ----------------------------------------------------------------------------

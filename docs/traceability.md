@@ -36,7 +36,7 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-25 | UART log 115200, structured format | `core/event_log`, `app/measurement_task` | Terminal observation | 5 |
 | FR-26 | Email on fire + sensor fault, rate-limited 1×/h | `core/email_policy`, `app/mail_task`, `hal/mailer` | `test/test_email_policy` (§7: rising-edge only, 1/interval/type, persistence silent, clear+re-arm, disabled, wrap; 100% cov); SMTP send + integration Phase 5 | 5 |
 | FR-27 | All config fields persistent in NVS, default on empty | `hal/nvs_store_target`, `core/config_model` | Driver impl (Phase 4, Preferences typed get/put); `test/test_config_model` + NvsStoreFake round-trip | 4 |
-| FR-28 | Python bleak monitor decodes advertising packets | `tools/ble_monitor/monitor.py` | Manual Windows test | 7 |
+| FR-28 | Python bleak monitor decodes advertising packets | `tools/ble_monitor/monitor.py` | `--selftest` decodes §6.2 vectors (byte-matched to firmware encoder); manual Windows scan | 7 |
 
 ## Non-Functional Requirements
 

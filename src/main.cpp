@@ -362,13 +362,17 @@ void measurementCycle(uint32_t nowMs) {
     const Temperature innerRaw   = readSensor(g_innerBus, g_innerAnomaly, g_innerAvg, innerFlags);
     (void)readSensor(g_outerBus, g_outerAnomaly, g_outerAvg, outerFlags);
 
-    // Use kTempInvalid until both windows are fully populated (FR-02/FR-07: diff alarm
-    // is defined over exactly 10 samples; a partial average could produce false trips).
-    const Temperature innerAvg = g_innerAvg.isFull() ? g_innerAvg.average() : kTempInvalid;
-    const Temperature outerAvg = g_outerAvg.isFull() ? g_outerAvg.average() : kTempInvalid;
+    const Temperature innerAvg = g_innerAvg.average();
+    const Temperature outerAvg = g_outerAvg.average();
     const EventFlags  flags    = static_cast<EventFlags>(innerFlags | outerFlags);
 
-    const MeasurementSnapshot ms{innerRaw, innerAvg, outerAvg, flags};
+    // For the diff alarm pass kTempInvalid until both windows are fully populated
+    // (FR-02/FR-07: diff is defined over exactly 10 samples; a partial average could
+    // produce false trips). Fire and sensor alarms use innerRaw/anomalyFlags, so they
+    // are unaffected. Display and JSON use the real averages below.
+    const Temperature         innerAvgAlarm = g_innerAvg.isFull() ? innerAvg : kTempInvalid;
+    const Temperature         outerAvgAlarm = g_outerAvg.isFull() ? outerAvg : kTempInvalid;
+    const MeasurementSnapshot ms{innerRaw, innerAvgAlarm, outerAvgAlarm, flags};
     const AlarmEdges          edges = g_alarm.update(ms);
 
     // Drive the buzzer on rising edges (fire re-armed below while it persists).
@@ -388,7 +392,7 @@ void measurementCycle(uint32_t nowMs) {
         g_beep.playFire(nowMs); // keep sounding while the fire condition holds (FR-08)
     }
 
-    const auto advice = window::advise(innerAvg, outerAvg,
+    const auto advice = window::advise(innerAvgAlarm, outerAvgAlarm,
                                        static_cast<cfg::window_advisor::Goal>(g_config.windowGoal),
                                        g_config.diffThresholdC100);
 

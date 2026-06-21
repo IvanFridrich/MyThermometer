@@ -25,8 +25,8 @@ Phase column: earliest phase where the requirement is satisfied.
 | FR-14 | Connect to hardcoded SSID from secrets.h | `hal/wifi_hal_target` | Driver impl (Phase 4, WiFi STA); HW integration test | 4 |
 | FR-15 | Reconnect + exponential backoff + LCD "WiFi DN" | `hal/wifi_hal_target`, `app/web_task` | Driver primitives (begin/isConnected); backoff state machine in `app` (Phase 4); integration (disconnect AP) | 4 |
 | FR-16 | mDNS `teplomer.local` | `hal/wifi_hal_target` | Driver impl (Phase 4, ESPmDNS + http service); browser access test | 4 |
-| FR-17 | Single-page web UI with history graph | `web/index.html`, `app/web_task` | Browser test | 7 |
-| FR-18 | uPlot graph with missing-point rendering | `web/app.js` | Browser visual test | 7 |
+| FR-17 | Single-page web UI with history graph | `web/index.html` (Pico.css + uPlot CDN), `app/web_task` | Page implemented (live panel, window advice, config, actions); browser test on device | 7 |
+| FR-18 | uPlot graph with missing-point rendering | `web/app.js` | Implemented: null samples render as gaps (`spanGaps:false`), browser computes time from uptime_s+stride_s; browser visual test | 7 |
 | FR-19 | Web shows: uptime, errors, free heap, RSSI, sensor IDs | `web/app.js`, `core/json_api` (`/api/current` fields) | `test/test_json_api` (exact shape/values); browser test | 7 |
 | FR-20 | Config via web, persisted in NVS | `hal/nvs_store_target`, `app/web_task` | Driver impl (Phase 4, Preferences); NVS round-trip + browser | 4 |
 | FR-21 | Web actions: restart, test beep, set contrast, test email, status email | `app/web_task` | Browser integration test | 4/5 |

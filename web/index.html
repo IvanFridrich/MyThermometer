@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Teploměr</title>
+    <!-- CDN only, no build step (D13/D14). Pico.css + uPlot. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css" />
+    <style>
+      :root { --pico-spacing: 0.8rem; }
+      main { padding: 1rem; max-width: 60rem; margin: 0 auto; }
+      .grid-temps { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .big { font-size: 2.4rem; font-weight: 700; margin: 0; }
+      .advice { font-size: 1.6rem; font-weight: 700; text-align: center; padding: 0.6rem;
+                border-radius: var(--pico-border-radius); }
+      .advice.open { background: #1b5e20; color: #fff; }
+      .advice.close { background: #7f1d1d; color: #fff; }
+      .advice.nochange { background: var(--pico-card-sectioning-background-color); }
+      .alarm { color: var(--pico-del-color); font-weight: 700; }
+      #chart { width: 100%; }
+      dl.diag { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 1rem; }
+      dl.diag dt { font-weight: 600; }
+      small.muted { color: var(--pico-muted-color); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <hgroup>
+        <h1>Teploměr</h1>
+        <p><small class="muted" id="conn">Načítání…</small></p>
+      </hgroup>
+
+      <article>
+        <div class="grid-temps">
+          <div><small class="muted">Vnitřní</small><p class="big"><span id="inner">–</span> °C</p></div>
+          <div><small class="muted">Venkovní</small><p class="big"><span id="outer">–</span> °C</p></div>
+        </div>
+        <p>Rozdíl (venku − uvnitř): <strong id="diff">–</strong> °C</p>
+        <div class="advice nochange" id="advice">BEZE ZMĚNY</div>
+        <p id="alarms"></p>
+      </article>
+
+      <article>
+        <header>Historie (24 h)</header>
+        <div id="chart"></div>
+        <small class="muted">Přerušení čáry = chybějící nebo neplatný vzorek.</small>
+      </article>
+
+      <article>
+        <header>Diagnostika</header>
+        <dl class="diag">
+          <dt>Uptime</dt><dd id="uptime">–</dd>
+          <dt>WiFi RSSI</dt><dd id="rssi">–</dd>
+          <dt>Volná paměť</dt><dd id="heap">–</dd>
+          <dt>Min. volná paměť</dt><dd id="minheap">–</dd>
+          <dt>ROM ID vnitřní</dt><dd id="romIn">–</dd>
+          <dt>ROM ID venkovní</dt><dd id="romOut">–</dd>
+        </dl>
+      </article>
+
+      <article>
+        <header>Konfigurace</header>
+        <form id="cfgForm">
+          <label><input type="checkbox" name="beeper" role="switch" /> Bzučák</label>
+          <label><input type="checkbox" name="email" role="switch" /> E-mailové alarmy</label>
+          <label>Cíl
+            <select name="window_goal">
+              <option value="0">Chladit místnost (CoolRoom)</option>
+              <option value="1">Vytápět místnost (WarmRoom)</option>
+            </select>
+          </label>
+          <div class="grid">
+            <label>Práh rozdílu (°C×100)<input type="number" name="diff_thr_c100" min="1" /></label>
+            <label>Hystereze rozdílu<input type="number" name="diff_hyst_c100" min="0" /></label>
+          </div>
+          <div class="grid">
+            <label>Práh požáru (°C×100)<input type="number" name="fire_thr_c100" min="1" /></label>
+            <label>Hystereze požáru<input type="number" name="fire_hyst_c100" min="0" /></label>
+          </div>
+          <label>Kontrast LCD (0–255)<input type="range" name="contrast" min="0" max="255" /></label>
+          <button type="submit">Uložit konfiguraci</button>
+        </form>
+      </article>
+
+      <article>
+        <header>Akce</header>
+        <div class="grid">
+          <button class="secondary" data-action="test-beep">Test bzučáku</button>
+          <button class="secondary" data-action="test-email">Test e-mailu</button>
+          <button class="secondary" data-action="status-email">Stavový e-mail</button>
+          <button class="contrast" data-action="restart">Restart zařízení</button>
+        </div>
+        <p><small class="muted" id="actionMsg"></small></p>
+      </article>
+
+      <footer><small class="muted">Čas grafu je dopočítán prohlížečem (zařízení nemá RTC).</small></footer>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

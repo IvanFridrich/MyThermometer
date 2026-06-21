@@ -48,9 +48,11 @@ constexpr uint8_t kLcdBacklight  = 11; // optional; set kBacklightControlled
 //    high-resolution channel (smooth DC after RC filter).
 // ----------------------------------------------------------------------------
 namespace ledc {
-constexpr uint8_t kBuzzerChannel    = 0;
-constexpr uint8_t kContrastChannel  = 1;
-constexpr uint8_t kBacklightChannel = 2;
+constexpr uint8_t kBuzzerChannel    = 0; // Timer 0 (ch/2 % 4 = 0)
+constexpr uint8_t kBacklightChannel = 2; // Timer 1 (ch/2 % 4 = 1) — reserved, not used
+constexpr uint8_t kContrastChannel  = 4; // Timer 2 (ch/2 % 4 = 2) — must NOT share a timer
+                                         // with the buzzer: ledcWriteTone() reconfigures
+                                         // the whole timer, which would corrupt V0 duty
 
 constexpr uint32_t kContrastFreqHz  = 25000; // above audible; RC-smoothed
 constexpr uint8_t  kContrastResBits = 8;     // 0..255 duty (NVS uint8)
@@ -208,7 +210,7 @@ constexpr uint8_t kRows = 2;
 // On WiFi (re)connect, show hostname/IP for this long, then back to temps.
 constexpr uint32_t kShowAddressMs = 60UL * 1000UL; // ~1 minute
 constexpr uint32_t kRefreshMs     = 1000;          // redraw cadence
-constexpr uint8_t  kDegreeGlyph   = 0;             // custom char slot for °
+constexpr uint8_t  kDegreeGlyph   = 1;             // custom char slot for ° (slot 0 = \x00 = null)
 } // namespace lcd
 
 // ----------------------------------------------------------------------------

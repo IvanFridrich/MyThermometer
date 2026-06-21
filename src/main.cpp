@@ -263,35 +263,40 @@ void handleAction() {
 // ---------------------------------------------------------------------------
 // LCD rendering (Core 1)
 // ---------------------------------------------------------------------------
-void renderLcd(const json_api::CurrentStatus& s, uint32_t nowMs) {
-    char       line[cfg::lcd::kCols + 1];
-    const bool showInner = (nowMs / cfg::lcd::kRefreshMs) % 2 == 0;
-    if (showInner) {
-        if (s.innerC100 == kTempInvalid) {
-            snprintf(line, sizeof(line), "I: --.-");
-        } else {
-            snprintf(line, sizeof(line), "I:%.1f", s.innerC100 / 100.0);
-        }
+// Format a temperature into an 8-char LCD row.
+// Layout: prefix(1) + %5.1f right-justified(5) + CGRAM °(1) + 'C'(1) = 8 chars.
+// '\x01' is CGRAM slot kDegreeGlyph (custom bitmap, ROM-independent). Slot 1
+// avoids the null-terminator issue of slot 0 ('\x00'). '\x01C' would parse as
+// hex 0x1C, so the 'C' is separated via adjacent string literal concatenation.
+static void fmtTempRow(char* buf, size_t bufsz, char prefix, Temperature c100) {
+    if (c100 == kTempInvalid) {
+        snprintf(buf, bufsz, "%c  --.-\x01", prefix); // 1 + 2 + 4 + 1 = 8
     } else {
-        if (s.outerC100 == kTempInvalid) {
-            snprintf(line, sizeof(line), "O: --.-");
-        } else {
-            snprintf(line, sizeof(line), "O:%.1f", s.outerC100 / 100.0);
-        }
+        snprintf(buf, bufsz,
+                 "%c%5.1f\x01"
+                 "C",
+                 prefix, c100 / 100.0); // 1+5+1+1 = 8
     }
-    g_lcd.setCursor(0, 0);
-    g_lcd.print(line);
+}
 
+void renderLcd(const json_api::CurrentStatus& s) {
+    // Row 0: inner temperature — always visible.
+    char row0[cfg::lcd::kCols + 1];
+    fmtTempRow(row0, sizeof(row0), 'I', s.innerC100);
+    g_lcd.setCursor(0, 0);
+    g_lcd.print(row0);
+
+    // Row 1: alarm/status when active; outer temperature otherwise.
+    // Priority: FIRE! > sensor fault > WiFi down > outer temp.
     char row1[cfg::lcd::kCols + 1];
     if (s.fire) {
-        snprintf(row1, sizeof(row1), "FIRE!");
+        snprintf(row1, sizeof(row1), "FIRE!   ");
     } else if (s.sensorFault) {
-        snprintf(row1, sizeof(row1), "SENSOR");
+        snprintf(row1, sizeof(row1), "SENSOR  ");
     } else if (!g_wifi.isConnected()) {
-        snprintf(row1, sizeof(row1), "WiFi DN");
+        snprintf(row1, sizeof(row1), "WiFi DN ");
     } else {
-        const uint32_t up = nowMs / 1000UL;
-        snprintf(row1, sizeof(row1), "up%lum", static_cast<unsigned long>(up / 60UL));
+        fmtTempRow(row1, sizeof(row1), 'O', s.outerC100);
     }
     g_lcd.setCursor(0, 1);
     g_lcd.print(row1);
@@ -408,7 +413,13 @@ void appendHistory() {
     uint32_t lastMeasure = 0;
     uint32_t lastHistory = 0;
     uint32_t lastLcd     = 0;
-    measurementCycle(millis()); // prime (first OneWire read returns kNotReady)
+    // readRomId() in setup() reset convStarted_ on both buses, so the prime call
+    // below only triggers the DS18B20 conversion (returns kNotReady). We wait the
+    // 12-bit conversion time (~750 ms) then call again to read the first real
+    // scratchpad — this way the LCD shows actual temperatures from the first frame.
+    measurementCycle(millis());
+    vTaskDelay(pdMS_TO_TICKS(800));
+    measurementCycle(millis()); // reads the conversion; g_snapshot now has real temps
     for (;;) {
         const uint32_t now = millis();
         if (now - lastMeasure >= cfg::sample::kSamplePeriodMs) {
@@ -421,7 +432,7 @@ void appendHistory() {
         }
         if (now - lastLcd >= cfg::lcd::kRefreshMs) {
             lastLcd = now;
-            renderLcd(snapshotCopy(), now);
+            renderLcd(snapshotCopy());
         }
         const uint16_t hz = g_beep.tick(now);
         if (hz != 0) {
@@ -500,6 +511,7 @@ void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
         } else {
             backoffMs = cfg::net::kReconnectMinMs;
             if (!mdnsStarted) {
+                g_server.begin(); // safe here: WiFi.begin() has initialised the lwIP stack
                 g_wifi.startMdns(cfg::net::kMdnsHostname);
                 mdnsStarted = true;
                 char ip[16];
@@ -537,6 +549,10 @@ void setup() {
     }
 
     g_lcd.init();
+    // Load a custom ° glyph into CGRAM slot kDegreeGlyph (slot 0 = '\0', unusable
+    // in C strings, so we use slot 1). Bitmap: 5×8, small circle at top of cell.
+    static const uint8_t kDegreeBitmap[8] = {0x0E, 0x11, 0x11, 0x0E, 0x00, 0x00, 0x00, 0x00};
+    g_lcd.createChar(cfg::lcd::kDegreeGlyph, kDegreeBitmap);
     g_pwm.initContrast(cfg::pin::kLcdContrastV0, cfg::ledc::kContrastChannel);
     g_pwm.initBuzzer(cfg::pin::kBuzzer, cfg::ledc::kBuzzerChannel);
 
@@ -558,7 +574,9 @@ void setup() {
     g_server.on("/api/history", HTTP_GET, handleApiHistory);
     g_server.on("/api/config", HTTP_POST, handleApiConfig);
     g_server.on(UriBraces("/api/action/{}"), HTTP_POST, handleAction);
-    g_server.begin();
+    // g_server.begin() is intentionally deferred to core0Task once WiFi connects:
+    // WebServer::begin() calls into lwIP (tcpip_send_msg_wait_sem) which asserts if
+    // the TCP/IP adapter has not been initialised yet by WiFi.begin().
 
     g_beep.playTone(cfg::beep::kBootToneHz, millis());
 

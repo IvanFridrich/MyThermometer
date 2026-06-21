@@ -42,6 +42,9 @@ Result<void> Mailer::send(const char* to, const char* subject, const char* body)
     config.login.email       = g_user;
     config.login.password    = g_password;
     config.login.user_domain = "";
+    // Bound the blocking send so a dead SMTP server cannot wedge the caller
+    // (the task is WDT-unsubscribed around send; keep that window finite).
+    smtp.setTCPTimeout(cfg::email::kSendTimeoutMs / 1000U);
 
     if (!smtp.connect(&config)) {
         return Result<void>::err(Status::kSendFailed);

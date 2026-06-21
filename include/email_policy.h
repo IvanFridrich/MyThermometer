@@ -29,9 +29,15 @@ class EmailPolicy {
     explicit EmailPolicy(uint32_t minIntervalMs = cfg::email::kMinIntervalMs);
 
     // Call once per cycle per type with the current alarm state. Returns true iff
-    // an automatic email should be sent now (rising edge + enabled + first-ever or
-    // interval elapsed). On true it records nowMs as the rate-limit anchor.
-    bool onAlarm(Type type, bool active, bool enabled, uint32_t nowMs);
+    // an automatic email is DUE now: rising edge (inactive->active) + enabled +
+    // (first-ever or interval elapsed since the last *successful* send). This does
+    // NOT commit — the caller sends and, only on success, calls markSent(). A
+    // failed send therefore does not advance the rate-limit anchor, so a re-armed
+    // alarm can retry on its next edge (§7: still edge-only, never while persisting).
+    bool shouldSend(Type type, bool active, bool enabled, uint32_t nowMs);
+
+    // Record a successful send for `type` at nowMs (advances the rate-limit anchor).
+    void markSent(Type type, uint32_t nowMs);
 
     void reset();
 
@@ -40,8 +46,8 @@ class EmailPolicy {
 
     uint32_t                         minIntervalMs_;
     std::array<bool, kTypeCount>     prevActive_{};
-    std::array<bool, kTypeCount>     everSent_{};
-    std::array<uint32_t, kTypeCount> lastSentMs_{};
+    std::array<bool, kTypeCount>     everSucceeded_{};
+    std::array<uint32_t, kTypeCount> lastSuccessMs_{};
 };
 
 } // namespace email_policy

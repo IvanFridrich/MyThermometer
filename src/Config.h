@@ -98,7 +98,7 @@ constexpr uint8_t  kAvgWindowMinutes = 10;                // floating average (=
 constexpr uint8_t  kAvgWindowSamples = kAvgWindowMinutes; // 1 sample/min
 
 constexpr uint32_t kHistoryStrideMs = 10UL * 60UL * 1000UL; // store 1/10 min
-constexpr uint16_t kHistoryHours    = 24;                   // tune freely
+constexpr uint16_t kHistoryHours    = 24*7;                   // tune freely
 // Ring-buffer depth. Static array of this many records.
 constexpr uint16_t kHistoryDepth =
     static_cast<uint16_t>((kHistoryHours * 60U) / 10U); // = 144 @ 24h

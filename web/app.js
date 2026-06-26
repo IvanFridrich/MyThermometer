@@ -58,10 +58,10 @@ function renderCurrent(s) {
     f.beeper.checked = s.beeper;
     f.email.checked = s.email;
     f.window_goal.value = String(s.window_goal);
-    f.diff_thr_c100.value = s.diff_thr_c100;
-    f.diff_hyst_c100.value = s.diff_hyst_c100;
-    f.fire_thr_c100.value = s.fire_thr_c100;
-    f.fire_hyst_c100.value = s.fire_hyst_c100;
+    f.diff_thr.value = (s.diff_thr_c100 / 100).toFixed(1);
+    f.diff_hyst.value = (s.diff_hyst_c100 / 100).toFixed(1);
+    f.fire_thr.value = (s.fire_thr_c100 / 100).toFixed(1);
+    f.fire_hyst.value = (s.fire_hyst_c100 / 100).toFixed(1);
     f.contrast.value = s.contrast;
     f.dataset.loaded = "1";
   }
@@ -78,6 +78,18 @@ function makeChart() {
       { label: "Venkovní", stroke: "#1976d2", spanGaps: false, value: (u, v) => v == null ? "–" : v.toFixed(2) + " °C" },
     ],
     scales: { x: { time: true } },
+    axes: [
+      {
+        values: (u, vals, space, incr) => vals.map(v => {
+          if (v == null) return "";
+          const d = new Date(v * 1000);
+          if (incr >= 86400) {
+            return String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0") + ".";
+          }
+          return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+        }),
+      },
+    ],
   };
   chart = new uPlot(opts, [[], [], []], $("chart"));
   window.addEventListener("resize", () => chart.setSize({ width: $("chart").clientWidth, height: 320 }));
@@ -105,7 +117,11 @@ async function poll() {
     ]);
     renderCurrent(cur);
     renderHistory(hist);
-    $("conn").textContent = "Aktualizováno " + new Date().toLocaleTimeString();
+    const now = new Date();
+    const t = String(now.getHours()).padStart(2, "0") + ":" +
+              String(now.getMinutes()).padStart(2, "0") + ":" +
+              String(now.getSeconds()).padStart(2, "0");
+    $("conn").textContent = "Aktualizováno " + t;
   } catch (e) {
     $("conn").textContent = "Zařízení nedostupné (" + e + ")";
   }
@@ -129,10 +145,10 @@ function wireForms() {
       beeper: f.beeper.checked ? 1 : 0,
       email: f.email.checked ? 1 : 0,
       window_goal: f.window_goal.value,
-      diff_thr_c100: f.diff_thr_c100.value,
-      diff_hyst_c100: f.diff_hyst_c100.value,
-      fire_thr_c100: f.fire_thr_c100.value,
-      fire_hyst_c100: f.fire_hyst_c100.value,
+      diff_thr_c100: Math.round(parseFloat(f.diff_thr.value) * 100),
+      diff_hyst_c100: Math.round(parseFloat(f.diff_hyst.value) * 100),
+      fire_thr_c100: Math.round(parseFloat(f.fire_thr.value) * 100),
+      fire_hyst_c100: Math.round(parseFloat(f.fire_hyst.value) * 100),
       contrast: f.contrast.value,
     };
     try {

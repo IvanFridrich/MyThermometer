@@ -98,10 +98,10 @@ constexpr uint8_t  kAvgWindowMinutes = 10;                // floating average (=
 constexpr uint8_t  kAvgWindowSamples = kAvgWindowMinutes; // 1 sample/min
 
 constexpr uint32_t kHistoryStrideMs = 10UL * 60UL * 1000UL; // store 1/10 min
-constexpr uint16_t kHistoryHours    = 24*7;                   // tune freely
+constexpr uint16_t kHistoryHours    = 24 * 7;               // tune freely
 // Ring-buffer depth. Static array of this many records.
 constexpr uint16_t kHistoryDepth =
-    static_cast<uint16_t>((kHistoryHours * 60U) / 10U); // = 144 @ 24h
+    static_cast<uint16_t>((kHistoryHours * 60U) / 10U); // = 1008 @ 168h (7d)
 
 // Stored temperature scaling: centi-degrees in int16 (range -30..80 C ok).
 constexpr float kStoreScale = 100.0F; // C * 100
@@ -186,8 +186,9 @@ constexpr uint8_t  kMaxHttpRoutes  = 16;         // max registered route handler
 constexpr int8_t   kRssiInvalid    = 127;        // out-of-band RSSI sentinel = "not connected"
 // Static scratch buffers for JSON responses (no dynamic allocation). History is
 // sized for kHistoryDepth records of the widest form {"i":-32767,"o":-32767,"f":65535}.
+// Worst case 1008 records: 41 (header) + 33 + 1007×34 (records) + 2 (tail) + 1 (NUL) = 34315 B.
 constexpr uint16_t kJsonCurrentBufSize = 640;
-constexpr uint16_t kJsonHistoryBufSize = 6144;
+constexpr uint32_t kJsonHistoryBufSize = 36000;
 } // namespace net
 
 // ----------------------------------------------------------------------------
@@ -221,9 +222,10 @@ constexpr uint8_t  kDegreeGlyph   = 1;             // custom char slot for ° (s
 namespace safety {
 constexpr uint32_t kWdtTimeoutMs = 8000; // task WDT timeout (NFR-02)
 constexpr bool     kPanicOnWdt   = true; // reset on WDT timeout
-// Brownout: ESP32-S3 brownout detector enabled with a conservative level.
-// (Exact register level set in HAL; value here documents intent.)
-constexpr uint8_t kBrownoutLevel = 7; // see HAL brownout setup
+// Brownout: ESP32-S3 brownout detector is enabled by default in the Arduino-ESP32
+// sdkconfig (CONFIG_ESP_BROWNOUT_DET=y, level 7 ≈ 2.96 V). This constant documents
+// the intended level; it is NOT applied at runtime — changing it here has no effect.
+constexpr uint8_t kBrownoutLevel = 7; // informational only; applied via sdkconfig
 } // namespace safety
 
 // ----------------------------------------------------------------------------

@@ -14,7 +14,7 @@ struct __attribute__((packed)) HistoryRecord {
 };
 static_assert(sizeof(HistoryRecord) == 6, "HistoryRecord must be 6 bytes");
 
-// Static ring buffer of kCapacity HistoryRecords (144 × 6 B = 864 B).
+// Static ring buffer of kCapacity HistoryRecords (1008 × 6 B = 6048 B @ 7d).
 // append() overwrites the oldest record when full.
 // at(0) returns the oldest record; at(count()-1) the newest.
 class HistoryBuffer {

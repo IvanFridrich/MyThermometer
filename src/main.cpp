@@ -265,7 +265,9 @@ void handleAction() {
         esp_task_wdt_delete(nullptr);
         const bool ok =
             g_mailer.send(RECIPIENT_EMAIL, "Teplomer: status", buildStatusBody(snap)).isOk();
-        esp_task_wdt_add(nullptr);
+        if (esp_task_wdt_add(nullptr) != ESP_OK) {
+            logLine(cfg::log::Level::kError, "WDT", "wdt_add failed after SMTP (test-email)");
+        }
         addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
         logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
                 ok ? "test email: sent" : "test email: FAILED (check SMTP host/creds)");
@@ -614,7 +616,9 @@ void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
         logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
                 ok ? "alarm email sent (sensor)" : "alarm email failed (sensor)");
     }
-    esp_task_wdt_add(nullptr);
+    if (esp_task_wdt_add(nullptr) != ESP_OK) {
+        logLine(cfg::log::Level::kError, "WDT", "wdt_add failed after SMTP (alarm)");
+    }
 }
 
 [[noreturn]] void core0Task(void*) {

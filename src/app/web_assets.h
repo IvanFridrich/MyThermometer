@@ -50,7 +50,7 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
       <article>
         <header>Historie</header>
         <div id="chart"></div>
-        <small class="muted">Přerušení čáry = chybějící nebo neplatný vzorek.</small>
+        <small class="muted">Přerušení čáry = chybějící nebo neplatný vzorek. Čas grafu je dopočítán prohlížečem (zařízení nemá RTC).</small>
       </article>
 
       <article>
@@ -100,7 +100,6 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
         <p><small class="muted" id="actionMsg"></small></p>
       </article>
 
-      <footer><small class="muted">Čas grafu je dopočítán prohlížečem (zařízení nemá RTC).</small></footer>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>

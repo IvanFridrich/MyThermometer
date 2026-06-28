@@ -185,13 +185,22 @@ function makeChart() {
     width: $("chart").clientWidth || 800,
     height: 320,
     series: [
-      {},
+      { value: (u, v) => {
+          if (v == null) return "–";
+          const d = new Date(v * 1000);
+          return String(d.getDate()).padStart(2, "0") + "." +
+                 String(d.getMonth() + 1).padStart(2, "0") + ". " +
+                 String(d.getHours()).padStart(2, "0") + ":" +
+                 String(d.getMinutes()).padStart(2, "0");
+        }
+      },
       { label: "Vnitřní", stroke: "#d32f2f", spanGaps: false, value: (u, v) => v == null ? "–" : v.toFixed(2) + " °C" },
       { label: "Venkovní", stroke: "#1976d2", spanGaps: false, value: (u, v) => v == null ? "–" : v.toFixed(2) + " °C" },
     ],
     scales: { x: { time: true } },
     axes: [
       {
+        label: "Čas",
         values: (u, vals, space, incr) => vals.map(v => {
           if (v == null) return "";
           const d = new Date(v * 1000);

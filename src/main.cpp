@@ -183,7 +183,8 @@ void handleApiCurrent() {
     const json_api::CurrentStatus s = snapshotCopy();
     const size_t n = json_api::serializeCurrent(s, g_jsonCurrent, sizeof(g_jsonCurrent));
     if (n == 0) {
-        g_server.send(503, "text/plain", "busy");
+        logLine(cfg::log::Level::kError, "WEB", "serializeCurrent: buffer overflow");
+        g_server.send(500, "application/json", R"({"error":"serialize failed"})");
         return;
     }
     g_server.send(200, "application/json", g_jsonCurrent);
@@ -197,7 +198,8 @@ void handleApiHistory() {
     const size_t n =
         json_api::serializeHistory(g_histScratch, uptimeS, g_jsonHistory, sizeof(g_jsonHistory));
     if (n == 0) {
-        g_server.send(503, "text/plain", "busy");
+        logLine(cfg::log::Level::kError, "WEB", "serializeHistory: buffer overflow");
+        g_server.send(500, "application/json", R"({"error":"serialize failed"})");
         return;
     }
     g_server.send(200, "application/json", g_jsonHistory);

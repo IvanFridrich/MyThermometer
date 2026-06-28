@@ -48,7 +48,7 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
       </article>
 
       <article>
-        <header>Historie (24 h)</header>
+        <header>Historie</header>
         <div id="chart"></div>
         <small class="muted">Přerušení čáry = chybějící nebo neplatný vzorek.</small>
       </article>
@@ -221,14 +221,19 @@ function renderHistory(h) {
   chart.setData([xs, inner, outer]);
 }
 
+function fetchJson(url) {
+  return fetch(url).then((r) => r.ok ? r.json() : Promise.resolve(null));
+}
+
 async function poll() {
   try {
     const [cur, hist] = await Promise.all([
-      fetch("/api/current").then((r) => r.json()),
-      fetch("/api/history").then((r) => r.json()),
+      fetchJson("/api/current"),
+      fetchJson("/api/history"),
     ]);
+    if (!cur) throw new Error("no data from /api/current");
     renderCurrent(cur);
-    renderHistory(hist);
+    if (hist) renderHistory(hist);
     const now = new Date();
     const t = String(now.getHours()).padStart(2, "0") + ":" +
               String(now.getMinutes()).padStart(2, "0") + ":" +

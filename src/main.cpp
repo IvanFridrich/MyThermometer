@@ -44,6 +44,10 @@
 #include "app/web_assets.h"
 #include "secrets.h"
 
+#include <esp_https_server.h>
+#include <esp_ota_ops.h>
+#include "certs.h"
+
 // ---------------------------------------------------------------------------
 // HAL + domain instances (constructed once; live for the program lifetime)
 // ---------------------------------------------------------------------------
@@ -94,6 +98,8 @@ EventFlags g_windowFlags = 0;
 
 uint8_t g_bleSeq = 0;
 
+httpd_handle_t g_httpsServer{nullptr};
+
 // Static task stacks + TCBs (NFR-04: no heap in steady state; NFR-07).
 // StackType_t is uint8_t on Xtensa/ESP32-S3, so array sizes equal byte counts.
 StaticTask_t s_core0Tcb;
@@ -116,6 +122,48 @@ void logLine(cfg::log::Level level, const char* module, const char* msg) {
     g_log.append(level, module, msg, up);
     Serial.printf("[+%lu][%d][%s] %s\n", static_cast<unsigned long>(up), static_cast<int>(level),
                   module, msg);
+}
+
+// OTA POST handler — runs in esp_https_server's own task (not registered with Task WDT).
+esp_err_t handleOtaPost(httpd_req_t* req) {
+    const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
+    if (target == nullptr) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no OTA partition");
+        return ESP_FAIL;
+    }
+    esp_ota_handle_t handle{};
+    if (esp_ota_begin(target, req->content_len, &handle) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_begin failed");
+        return ESP_FAIL;
+    }
+    static char otaBuf[cfg::net::kOtaRecvBufSize];
+    int         remaining = static_cast<int>(req->content_len);
+    while (remaining > 0) {
+        const int chunk = (remaining < static_cast<int>(sizeof(otaBuf)))
+                              ? remaining
+                              : static_cast<int>(sizeof(otaBuf));
+        const int recv = httpd_req_recv(req, otaBuf, static_cast<size_t>(chunk));
+        if (recv <= 0) {
+            esp_ota_abort(handle);
+            return ESP_FAIL;
+        }
+        if (esp_ota_write(handle, otaBuf, static_cast<size_t>(recv)) != ESP_OK) {
+            esp_ota_abort(handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "write failed");
+            return ESP_FAIL;
+        }
+        remaining -= recv;
+    }
+    if (esp_ota_end(handle) != ESP_OK) { // SHA-256 verify
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "verify failed");
+        return ESP_FAIL;
+    }
+    esp_ota_set_boot_partition(target);
+    httpd_resp_sendstr(req, "OK");
+    logLine(cfg::log::Level::kInfo, "OTA", "success, restarting");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_restart();
+    return ESP_OK;
 }
 
 // --- config persistence -----------------------------------------------------
@@ -652,6 +700,29 @@ void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
                 char ip[16];
                 g_wifi.getIp(ip, sizeof(ip));
                 logLine(cfg::log::Level::kInfo, "WIFI", ip);
+
+                if (g_httpsServer == nullptr) {
+                    httpd_ssl_config_t conf   = HTTPD_SSL_CONFIG_DEFAULT();
+                    // In ESP-IDF 4.x / Arduino-ESP32 2.x the server's own cert is
+                    // named cacert_pem/cacert_len (confusingly); ESP-IDF 5.x renames
+                    // it to servercert/servercert_len.
+                    conf.cacert_pem           = reinterpret_cast<const uint8_t*>(certs::kCert);
+                    conf.cacert_len           = sizeof(certs::kCert);
+                    conf.prvtkey_pem          = reinterpret_cast<const uint8_t*>(certs::kKey);
+                    conf.prvtkey_len          = sizeof(certs::kKey);
+                    conf.port_secure          = cfg::net::kOtaHttpsPort;
+                    conf.httpd.stack_size     = 10240; // TLS handshake needs extra stack
+                    conf.httpd.recv_wait_timeout = 30; // 30 s to receive firmware
+                    conf.httpd.send_wait_timeout = 10;
+                    if (httpd_ssl_start(&g_httpsServer, &conf) == ESP_OK) {
+                        static const httpd_uri_t kOtaUri = {
+                            "/api/ota", HTTP_POST, handleOtaPost, nullptr, false, false, nullptr};
+                        httpd_register_uri_handler(g_httpsServer, &kOtaUri);
+                        logLine(cfg::log::Level::kInfo, "OTA", "HTTPS server up on :8443");
+                    } else {
+                        logLine(cfg::log::Level::kError, "OTA", "HTTPS server start failed");
+                    }
+                }
             }
             g_server.handleClient();
         }
@@ -677,6 +748,18 @@ void setup() {
     Serial.begin(cfg::log::kBaud);
     delay(200);
     logLine(cfg::log::Level::kInfo, "BOOT", "thermometer starting");
+
+    // Confirm new OTA firmware on the first boot after an OTA update so the
+    // bootloader does not roll back to the previous partition.
+    {
+        const esp_partition_t* running   = esp_ota_get_running_partition();
+        esp_ota_img_states_t   ota_state{};
+        if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK &&
+            ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+            esp_ota_mark_app_valid_cancel_rollback();
+            logLine(cfg::log::Level::kInfo, "OTA", "new firmware validated OK");
+        }
+    }
 
     if (g_sys.resetReason() == ResetReason::kBrownout) {
         logLine(cfg::log::Level::kWarn, "BOOT", "recovered from brownout");

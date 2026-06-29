@@ -7,6 +7,9 @@
 # Secrets — never commit the real file, only secrets.h.example
 include/secrets.h
 
+# OTA TLS cert+key — never commit the real file, only certs.h.example
+include/certs.h
+
 # LLVM coverage artefacts
 *.profraw
 *.profdata

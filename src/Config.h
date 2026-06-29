@@ -189,6 +189,8 @@ constexpr int8_t   kRssiInvalid    = 127;        // out-of-band RSSI sentinel = 
 // Worst case 1008 records: 41 (header) + 33 + 1007×34 (records) + 2 (tail) + 1 (NUL) = 34315 B.
 constexpr uint16_t kJsonCurrentBufSize = 640;
 constexpr uint32_t kJsonHistoryBufSize = 36000;
+constexpr uint16_t kOtaHttpsPort       = 8443; // OTA-only HTTPS server (esp_https_server)
+constexpr size_t   kOtaRecvBufSize     = 4096; // chunk buffer for firmware receive
 } // namespace net
 
 // ----------------------------------------------------------------------------

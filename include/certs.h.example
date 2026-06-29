@@ -1,0 +1,29 @@
+// certs.h — OTA HTTPS server certificate and private key.
+// Copy this file to include/certs.h (git-ignored) and fill in real cert+key.
+//
+// Generate a self-signed EC P-256 certificate (one-time, ~10-year validity):
+//
+//   openssl ecparam -name prime256v1 -genkey -noout -out ota_key.pem
+//   openssl req -new -x509 -key ota_key.pem -out ota_cert.pem \
+//       -days 3650 -subj "/CN=teplomer"
+//
+// Then paste the contents of ota_cert.pem into kCert and ota_key.pem into kKey.
+// Delete the generated .pem files afterwards — do NOT commit them.
+//
+// The Python uploader uses verify=False so the cert does not need to be trusted
+// by the OS; the only goal is encryption on the local network.
+#pragma once
+namespace certs {
+
+// NUL-terminated PEM; sizeof() includes the NUL (required by esp_https_server).
+inline constexpr char kCert[] =
+    "-----BEGIN CERTIFICATE-----\n"
+    "REPLACE_WITH_BASE64_ENCODED_CERT\n"
+    "-----END CERTIFICATE-----\n";
+
+inline constexpr char kKey[] =
+    "-----BEGIN EC PRIVATE KEY-----\n"
+    "REPLACE_WITH_BASE64_ENCODED_KEY\n"
+    "-----END EC PRIVATE KEY-----\n";
+
+} // namespace certs

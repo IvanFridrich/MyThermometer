@@ -33,29 +33,23 @@ def build() -> None:
 
 
 def wait_reconnect(host: str, timeout: int = 120) -> bool:
-    """Wait for device to disappear (restart) then come back online."""
+    """Wait for device to come back online after OTA restart."""
+    # The OTA handler calls esp_restart() 200 ms after sending the response.
+    # Sleep long enough for the device to actually go down before we start
+    # polling — avoids the race where a fast reboot looks like no reboot at all.
     print("Waiting for device to restart", end="", flush=True)
+    time.sleep(8)
+
     deadline = time.time() + timeout
-
-    # Phase 1: wait for the device to go offline
     while time.time() < deadline:
         try:
-            requests.get(f"http://{host}/api/current", timeout=2)
-            time.sleep(1)
-            print(".", end="", flush=True)
-        except Exception:
-            break  # went offline — good
-
-    # Phase 2: wait for the device to come back
-    while time.time() < deadline:
-        try:
-            r = requests.get(f"http://{host}/api/current", timeout=2)
+            r = requests.get(f"http://{host}/api/current", timeout=8)
             if r.ok:
                 print(" online!")
                 return True
         except Exception:
             pass
-        time.sleep(2)
+        time.sleep(3)
         print(".", end="", flush=True)
 
     print(" timeout!")

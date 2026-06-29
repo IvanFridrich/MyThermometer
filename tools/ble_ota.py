@@ -28,7 +28,7 @@ import os
 import subprocess
 import sys
 
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient, BleakError, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
 
 FIRMWARE = ".pio/build/esp32-s3-devkitc-1/firmware.bin"
@@ -143,57 +143,68 @@ async def upload(firmware_path: str, address: str | None) -> None:
             print(f"\nOTA error: 0x{code:02X}")
         ota_done.set()
 
-    async with BleakClient(target, timeout=30.0) as client:
-        mtu = client.mtu_size
-        print(f"Connected (MTU={mtu})")
-        if mtu < 50:
-            print(
-                f"Warning: MTU {mtu} is very small — MTU exchange may not have "
-                "occurred. Upload will be slow.",
-                file=sys.stderr,
-            )
-
-        await client.start_notify(STATUS_UUID, on_status)
-
-        # Begin OTA: [CTRL_START, size as little-endian uint32]
-        ctrl_start = bytes(
-            [
-                CTRL_START,
-                size & 0xFF,
-                (size >> 8) & 0xFF,
-                (size >> 16) & 0xFF,
-                (size >> 24) & 0xFF,
-            ]
-        )
-        await client.write_gatt_char(CTRL_UUID, ctrl_start, response=True)
-        print(f"OTA started ({size} B), uploading…")
-
-        # Stream DATA chunks (write-without-response for throughput)
-        chunk_size = max(1, mtu - 3)  # ATT overhead: 1 opcode + 2 handle
-        sent = 0
-        for offset in range(0, size, chunk_size):
-            chunk = firmware[offset : offset + chunk_size]
-            await client.write_gatt_char(DATA_UUID, chunk, response=False)
-            sent += len(chunk)
-            pct = sent * 100 // size
-            print(f"\r  {pct:3d}%  {sent // 1024}/{size // 1024} kB", end="", flush=True)
-
-        print(f"\r  100%  {size // 1024}/{size // 1024} kB — commit…")
-
-        # Commit: triggers SHA-256 verify + set boot partition + restart
-        await client.write_gatt_char(CTRL_UUID, bytes([CTRL_COMMIT]), response=True)
-        print("Waiting for STATUS notify…")
-
-        try:
-            await asyncio.wait_for(ota_done.wait(), timeout=20.0)
-        except asyncio.TimeoutError:
-            print("Timeout waiting for STATUS notify.", file=sys.stderr)
-            try:
-                await client.write_gatt_char(
-                    CTRL_UUID, bytes([CTRL_ABORT]), response=True
+    try:
+        async with BleakClient(target, timeout=30.0) as client:
+            mtu = client.mtu_size
+            print(f"Connected (MTU={mtu})")
+            if mtu < 50:
+                print(
+                    f"Warning: MTU {mtu} is very small — MTU exchange may not have "
+                    "occurred. Upload will be slow.",
+                    file=sys.stderr,
                 )
-            except Exception:
-                pass
+
+            await client.start_notify(STATUS_UUID, on_status)
+
+            # Begin OTA: [CTRL_START, size as little-endian uint32]
+            ctrl_start = bytes(
+                [
+                    CTRL_START,
+                    size & 0xFF,
+                    (size >> 8) & 0xFF,
+                    (size >> 16) & 0xFF,
+                    (size >> 24) & 0xFF,
+                ]
+            )
+            await client.write_gatt_char(CTRL_UUID, ctrl_start, response=True)
+            print(f"OTA started ({size} B), uploading…")
+
+            # Stream DATA chunks (write-without-response for throughput)
+            chunk_size = max(1, mtu - 3)  # ATT overhead: 1 opcode + 2 handle
+            sent = 0
+            for offset in range(0, size, chunk_size):
+                chunk = firmware[offset : offset + chunk_size]
+                await client.write_gatt_char(DATA_UUID, chunk, response=False)
+                sent += len(chunk)
+                pct = sent * 100 // size
+                print(f"\r  {pct:3d}%  {sent // 1024}/{size // 1024} kB", end="", flush=True)
+
+            print(f"\r  100%  {size // 1024}/{size // 1024} kB — commit…")
+
+            # Commit: triggers SHA-256 verify + set boot partition + restart.
+            # Use write-without-response so we don't wait for an ATT ack that
+            # may never arrive if the device restarts before sending it.
+            await client.write_gatt_char(CTRL_UUID, bytes([CTRL_COMMIT]), response=False)
+            print("Waiting for STATUS notify…")
+
+            try:
+                await asyncio.wait_for(ota_done.wait(), timeout=20.0)
+            except asyncio.TimeoutError:
+                print("Timeout waiting for STATUS notify.", file=sys.stderr)
+                try:
+                    await client.write_gatt_char(
+                        CTRL_UUID, bytes([CTRL_ABORT]), response=False
+                    )
+                except Exception:
+                    pass
+                sys.exit(1)
+
+    except BleakError as exc:
+        # After a successful OTA the device restarts; BleakClient.__aexit__
+        # may throw "Unreachable" while trying to disconnect a gone device.
+        # Treat that as non-fatal when the STATUS notify already confirmed success.
+        if not ota_success:
+            print(f"BLE error: {exc}", file=sys.stderr)
             sys.exit(1)
 
     if not ota_success:

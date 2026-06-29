@@ -188,8 +188,14 @@ struct OtaCtrlCb final : NimBLECharacteristicCallbacks {
             esp_ota_set_boot_partition(s_bleOta.target);
             logLine(cfg::log::Level::kInfo, "BLE-OTA", "success, restarting");
             bleOtaNotify(0x00U);
-            vTaskDelay(pdMS_TO_TICKS(300));
-            esp_restart();
+            // Must not call esp_restart() here: onWrite runs in the BLE task,
+            // so blocking here prevents NimBLE from sending the ATT Write Response
+            // and the STATUS notify. Spawn a low-priority task so onWrite returns
+            // first, then restart 400 ms later once NimBLE has flushed.
+            xTaskCreate([](void*) {
+                vTaskDelay(pdMS_TO_TICKS(400));
+                esp_restart();
+            }, "ota_rst", 2048, nullptr, tskIDLE_PRIORITY + 1, nullptr);
         } else if (d[0] == 0x03U) {
             // Abort
             if (s_bleOta.active) {

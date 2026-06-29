@@ -52,14 +52,20 @@ def build() -> None:
     subprocess.run(["pio", "run", "-e", "esp32-s3-devkitc-1"], check=True)
 
 
-async def find_device(name: str, address: str | None, timeout: float = 30.0):
+async def find_device(name: str, address: str | None, timeout: float = 65.0):
     if address:
         print(f"Connecting to {address} …")
         return address
-    print(f"Scanning for '{name}' …")
+    # Device advertises for ~750 ms once per minute; worst-case catch requires
+    # just over 60 s of scanning.  Default 65 s covers one full cycle + margin.
+    print(f"Scanning for '{name}' (up to {timeout:.0f} s) …")
     device = await BleakScanner.find_device_by_name(name, timeout=timeout)
     if device is None:
-        print(f"Device '{name}' not found within {timeout:.0f} s (advertising every ~12 s).", file=sys.stderr)
+        print(
+            f"Device '{name}' not found within {timeout:.0f} s.\n"
+            "The device advertises once per minute; try again or use --device ADDR.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     return device
 

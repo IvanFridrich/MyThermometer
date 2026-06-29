@@ -56,18 +56,70 @@ async def find_device(name: str, address: str | None, timeout: float = 65.0):
     if address:
         print(f"Connecting to {address} …")
         return address
-    # Device advertises for ~750 ms once per minute; worst-case catch requires
-    # just over 60 s of scanning.  Default 65 s covers one full cycle + margin.
-    print(f"Scanning for '{name}' (up to {timeout:.0f} s) …")
-    device = await BleakScanner.find_device_by_name(name, timeout=timeout)
-    if device is None:
+
+    # Device advertises for ~750 ms once per minute (kSamplePeriodMs = 60 s).
+    # Worst-case: scan starts right after a burst → must wait up to 60 s.
+    # 65 s covers one full cycle + margin.
+    #
+    # We scan manually (not find_device_by_name) so we can:
+    #   - match case-insensitively
+    #   - match by manufacturer company ID 0xFFFF as fallback
+    #   - print every new device found (helps debug wrong/unexpected names)
+    print(f"Scanning for '{name}' (up to {timeout:.0f} s, device advertises ~1×/min) …")
+
+    found_target = None
+    seen: dict[str, tuple] = {}  # address → (device, adv_data)
+
+    def callback(device, adv_data):
+        nonlocal found_target
+        addr = device.address.upper()
+        if addr not in seen:
+            seen[addr] = (device, adv_data)
+            dev_name = device.name or adv_data.local_name or "?"
+            print(f"  [{addr}]  {dev_name!r:24s}  RSSI={adv_data.rssi}")
+
+        if found_target is not None:
+            return
+
+        # Match 1: case-insensitive name
+        dev_name = (device.name or adv_data.local_name or "").strip()
+        if dev_name.lower() == name.lower():
+            found_target = device
+            return
+
+        # Match 2: contains target name (handles trailing spaces / BLE truncation)
+        if name.lower() in dev_name.lower():
+            found_target = device
+            return
+
+        # Match 3: manufacturer data with company ID 0xFFFF (our beacon)
+        if adv_data.manufacturer_data and 0xFFFF in adv_data.manufacturer_data:
+            found_target = device
+
+    scanner = BleakScanner(detection_callback=callback)
+    await scanner.start()
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    while loop.time() < end:
+        if found_target is not None:
+            await scanner.stop()
+            print(f"Found: {found_target.name!r} ({found_target.address})")
+            return found_target
+        await asyncio.sleep(1)
+    await scanner.stop()
+
+    print(f"\nDevice '{name}' not found in {timeout:.0f} s.", file=sys.stderr)
+    if seen:
         print(
-            f"Device '{name}' not found within {timeout:.0f} s.\n"
-            "The device advertises once per minute; try again or use --device ADDR.",
+            "Devices seen during scan (use --device ADDR to connect directly):",
             file=sys.stderr,
         )
-        sys.exit(1)
-    return device
+        for addr, (dev, adv) in sorted(seen.items()):
+            n = dev.name or adv.local_name or "?"
+            print(f"  {addr}  {n!r}", file=sys.stderr)
+    else:
+        print("No BLE devices seen at all — check adapter and proximity.", file=sys.stderr)
+    sys.exit(1)
 
 
 async def upload(firmware_path: str, address: str | None) -> None:

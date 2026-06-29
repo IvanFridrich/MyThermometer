@@ -52,14 +52,14 @@ def build() -> None:
     subprocess.run(["pio", "run", "-e", "esp32-s3-devkitc-1"], check=True)
 
 
-async def find_device(name: str, address: str | None, timeout: float = 10.0):
+async def find_device(name: str, address: str | None, timeout: float = 30.0):
     if address:
         print(f"Connecting to {address} …")
         return address
     print(f"Scanning for '{name}' …")
     device = await BleakScanner.find_device_by_name(name, timeout=timeout)
     if device is None:
-        print(f"Device '{name}' not found within {timeout:.0f} s.", file=sys.stderr)
+        print(f"Device '{name}' not found within {timeout:.0f} s (advertising every ~12 s).", file=sys.stderr)
         sys.exit(1)
     return device
 

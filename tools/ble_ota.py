@@ -147,8 +147,15 @@ async def upload(firmware_path: str, address: str | None) -> None:
             print(f"\nOTA error: 0x{code:02X}")
         ota_done.set()
 
+    disconnected = asyncio.Event()
+
+    def on_disconnect(_: BleakClient) -> None:
+        print("\n[!] Device disconnected.", file=sys.stderr)
+        disconnected.set()
+
     try:
-        async with BleakClient(target, timeout=30.0) as client:
+        async with BleakClient(target, timeout=30.0,
+                               disconnected_callback=on_disconnect) as client:
             mtu = client.mtu_size
             print(f"Connected (MTU={mtu})")
             if mtu < 50:
@@ -173,12 +180,18 @@ async def upload(firmware_path: str, address: str | None) -> None:
             await client.write_gatt_char(CTRL_UUID, ctrl_start, response=True)
             print(f"OTA started ({size} B), uploading…")
 
-            # Stream DATA chunks (write-without-response for throughput)
+            # Stream DATA chunks with response=True for per-chunk flow control.
+            # response=False (write-without-response) flooded NimBLE's MSYS pool
+            # and caused silent disconnects; response=True limits in-flight data
+            # to one chunk at a time and surfaces any write error immediately.
             chunk_size = max(1, mtu - 3)  # ATT overhead: 1 opcode + 2 handle
             sent = 0
             for offset in range(0, size, chunk_size):
+                if disconnected.is_set():
+                    print(f"\n[!] Lost connection at {sent}/{size} B.", file=sys.stderr)
+                    sys.exit(1)
                 chunk = firmware[offset : offset + chunk_size]
-                await client.write_gatt_char(DATA_UUID, chunk, response=False)
+                await client.write_gatt_char(DATA_UUID, chunk, response=True)
                 sent += len(chunk)
                 pct = sent * 100 // size
                 print(f"\r  {pct:3d}%  {sent // 1024}/{size // 1024} kB", end="", flush=True)

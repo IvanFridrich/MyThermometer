@@ -243,8 +243,13 @@ void setupBleOtaGatt() {
         svc->createCharacteristic(cfg::ble::kOtaCtrlUuid, NIMBLE_PROPERTY::WRITE);
     ctrl->setCallbacks(&s_otaCtrlCb);
 
+    // WRITE_NR (write-without-response) caused NimBLE MSYS-pool exhaustion when
+    // the client flooded chunks faster than esp_ota_write() could drain them.
+    // Adding WRITE (write-with-response) lets the client use response=True for
+    // natural per-chunk flow control while keeping WRITE_NR as a fallback.
     NimBLECharacteristic* data =
-        svc->createCharacteristic(cfg::ble::kOtaDataUuid, NIMBLE_PROPERTY::WRITE_NR);
+        svc->createCharacteristic(cfg::ble::kOtaDataUuid,
+                                  NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
     data->setCallbacks(&s_otaDataCb);
 
     s_bleOtaStatus =

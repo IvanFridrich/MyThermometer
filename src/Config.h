@@ -171,6 +171,13 @@ constexpr uint16_t kAdvIntervalMinMs = 100; // within a burst
 constexpr uint16_t kAdvIntervalMaxMs = 100;
 constexpr char     kDeviceName[]     = "ESP32S3-Thermo";
 constexpr uint8_t  kMaxPayloadBytes  = 24; // max manufacturer-data payload (fits in 31-byte PDU)
+
+// GATT OTA service — BLE firmware update (alternative to HTTPS OTA port 8443)
+// UUIDs are arbitrary; must match tools/ble_ota.py exactly.
+constexpr char kOtaSvcUuid[]    = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+constexpr char kOtaCtrlUuid[]   = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+constexpr char kOtaDataUuid[]   = "cba1d466-344c-4be3-ab3f-189f80dd7518";
+constexpr char kOtaStatusUuid[] = "f27b53ad-c63d-49a0-8c0f-9309d08f1fd0";
 } // namespace ble
 
 // ----------------------------------------------------------------------------

@@ -44,6 +44,7 @@
 #include "app/web_assets.h"
 #include "secrets.h"
 
+#include <NimBLEDevice.h>
 #include <esp_https_server.h>
 #include <esp_ota_ops.h>
 #include "certs.h"
@@ -122,6 +123,126 @@ void logLine(cfg::log::Level level, const char* module, const char* msg) {
     g_log.append(level, module, msg, up);
     Serial.printf("[+%lu][%d][%s] %s\n", static_cast<unsigned long>(up), static_cast<int>(level),
                   module, msg);
+}
+
+// ---------------------------------------------------------------------------
+// BLE GATT OTA service
+// Protocol: CTRL write [0x01, size LE u32] → DATA writes (chunks) →
+//           CTRL write [0x02] → STATUS notify [0x00] → restart.
+//           CTRL write [0x03] aborts at any point.
+// Callbacks run in the NimBLE task (not Task-WDT-registered; no feed needed).
+// ---------------------------------------------------------------------------
+struct BleOtaCtx {
+    esp_ota_handle_t       handle{};
+    const esp_partition_t* target{nullptr};
+    uint32_t               expected{0};
+    uint32_t               received{0};
+    bool                   active{false};
+};
+static BleOtaCtx              s_bleOta;
+static NimBLECharacteristic*  s_bleOtaStatus{nullptr};
+
+static void bleOtaNotify(uint8_t code) {
+    if (s_bleOtaStatus != nullptr) {
+        s_bleOtaStatus->notify(&code, 1);
+    }
+}
+
+struct OtaCtrlCb final : NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& /*info*/) override {
+        const NimBLEAttValue val = c->getValue();
+        const uint8_t*       d   = val.data();
+        const size_t         len = val.size();
+        if (len == 0) {
+            return;
+        }
+        if (d[0] == 0x01U && len == 5U) {
+            // Start OTA: [0x01, firmware_size_le_u32]
+            const uint32_t sz = static_cast<uint32_t>(d[1]) |
+                                (static_cast<uint32_t>(d[2]) << 8U) |
+                                (static_cast<uint32_t>(d[3]) << 16U) |
+                                (static_cast<uint32_t>(d[4]) << 24U);
+            s_bleOta.target = esp_ota_get_next_update_partition(nullptr);
+            if (s_bleOta.target == nullptr ||
+                esp_ota_begin(s_bleOta.target, sz, &s_bleOta.handle) != ESP_OK) {
+                logLine(cfg::log::Level::kError, "BLE-OTA", "begin failed");
+                bleOtaNotify(0xFFU);
+                return;
+            }
+            s_bleOta.expected = sz;
+            s_bleOta.received = 0;
+            s_bleOta.active   = true;
+            logLine(cfg::log::Level::kInfo, "BLE-OTA", "started");
+        } else if (d[0] == 0x02U) {
+            // Commit: verify + set boot partition + restart
+            if (!s_bleOta.active) {
+                bleOtaNotify(0xFFU);
+                return;
+            }
+            s_bleOta.active = false;
+            if (esp_ota_end(s_bleOta.handle) != ESP_OK) {
+                logLine(cfg::log::Level::kError, "BLE-OTA", "verify failed");
+                bleOtaNotify(0xFFU);
+                return;
+            }
+            esp_ota_set_boot_partition(s_bleOta.target);
+            logLine(cfg::log::Level::kInfo, "BLE-OTA", "success, restarting");
+            bleOtaNotify(0x00U);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            esp_restart();
+        } else if (d[0] == 0x03U) {
+            // Abort
+            if (s_bleOta.active) {
+                esp_ota_abort(s_bleOta.handle);
+                s_bleOta.active = false;
+                logLine(cfg::log::Level::kInfo, "BLE-OTA", "aborted");
+            }
+        }
+    }
+};
+
+struct OtaDataCb final : NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& /*info*/) override {
+        if (!s_bleOta.active) {
+            return;
+        }
+        const NimBLEAttValue val = c->getValue();
+        const uint8_t*       d   = val.data();
+        const size_t         len = val.size();
+        if (len == 0) {
+            return;
+        }
+        if (esp_ota_write(s_bleOta.handle, d, len) != ESP_OK) {
+            esp_ota_abort(s_bleOta.handle);
+            s_bleOta.active = false;
+            logLine(cfg::log::Level::kError, "BLE-OTA", "write failed");
+            bleOtaNotify(0xFFU);
+            return;
+        }
+        s_bleOta.received += static_cast<uint32_t>(len);
+    }
+};
+
+static OtaCtrlCb s_otaCtrlCb;
+static OtaDataCb s_otaDataCb;
+
+void setupBleOtaGatt() {
+    NimBLEServer*  srv = NimBLEDevice::createServer();
+    NimBLEService* svc = srv->createService(cfg::ble::kOtaSvcUuid);
+
+    NimBLECharacteristic* ctrl =
+        svc->createCharacteristic(cfg::ble::kOtaCtrlUuid, NIMBLE_PROPERTY::WRITE);
+    ctrl->setCallbacks(&s_otaCtrlCb);
+
+    NimBLECharacteristic* data =
+        svc->createCharacteristic(cfg::ble::kOtaDataUuid, NIMBLE_PROPERTY::WRITE_NR);
+    data->setCallbacks(&s_otaDataCb);
+
+    s_bleOtaStatus =
+        svc->createCharacteristic(cfg::ble::kOtaStatusUuid, NIMBLE_PROPERTY::NOTIFY);
+
+    // NimBLE 2.x: services start automatically when advertising begins
+    logLine(cfg::log::Level::kInfo, "BLE-OTA", "GATT service registered");
 }
 
 // OTA POST handler — runs in esp_https_server's own task (not registered with Task WDT).
@@ -785,6 +906,7 @@ void setup() {
     g_snapshot.outerRom             = outerRom.isOk() ? outerRom.value() : 0;
 
     g_ble.init(cfg::ble::kDeviceName, cfg::ble::kCompanyId);
+    setupBleOtaGatt();
 
     g_server.on("/", HTTP_GET, handleIndex);
     g_server.on("/app.js", HTTP_GET, handleAppJs);

@@ -32,7 +32,7 @@ Result<void> BleAdvertiser::init(const char* deviceName, uint16_t /*companyId*/)
     if (adv_ == nullptr) {
         return Result<void>::err(Status::kNotReady);
     }
-    adv_->setConnectableMode(BLE_GAP_CONN_MODE_NON); // beacon only, no connections
+    adv_->setConnectableMode(BLE_GAP_CONN_MODE_UND); // connectable for GATT OTA
     adv_->setMinInterval(msToAdvUnits(cfg::ble::kAdvIntervalMinMs));
     adv_->setMaxInterval(msToAdvUnits(cfg::ble::kAdvIntervalMaxMs));
     return Result<void>::ok();

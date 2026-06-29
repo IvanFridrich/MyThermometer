@@ -92,9 +92,12 @@ async def find_device(name: str, address: str | None, timeout: float = 65.0):
             found_target = device
             return
 
-        # Match 3: manufacturer data with company ID 0xFFFF (our beacon)
+        # Match 3: manufacturer data with company ID 0xFFFF (our beacon).
+        # Device name may be in the scan response (arrives later), so the ADV
+        # callback can show None — that is expected; we still identified it.
         if adv_data.manufacturer_data and 0xFFFF in adv_data.manufacturer_data:
             found_target = device
+            return
 
     scanner = BleakScanner(detection_callback=callback)
     await scanner.start()
@@ -103,7 +106,8 @@ async def find_device(name: str, address: str | None, timeout: float = 65.0):
     while loop.time() < end:
         if found_target is not None:
             await scanner.stop()
-            print(f"Found: {found_target.name!r} ({found_target.address})")
+            display_name = found_target.name or name  # name in scan response may lag
+            print(f"Found: {display_name!r} ({found_target.address})")
             return found_target
         await asyncio.sleep(1)
     await scanner.stop()
@@ -182,9 +186,9 @@ async def upload(firmware_path: str, address: str | None) -> None:
             print(f"\r  100%  {size // 1024}/{size // 1024} kB — commit…")
 
             # Commit: triggers SHA-256 verify + set boot partition + restart.
-            # Use write-without-response so we don't wait for an ATT ack that
-            # may never arrive if the device restarts before sending it.
-            await client.write_gatt_char(CTRL_UUID, bytes([CTRL_COMMIT]), response=False)
+            # response=True: firmware now defers esp_restart() to a separate task
+            # so onWrite() returns and NimBLE can send the ATT Write Response.
+            await client.write_gatt_char(CTRL_UUID, bytes([CTRL_COMMIT]), response=True)
             print("Waiting for STATUS notify…")
 
             try:
@@ -193,7 +197,7 @@ async def upload(firmware_path: str, address: str | None) -> None:
                 print("Timeout waiting for STATUS notify.", file=sys.stderr)
                 try:
                     await client.write_gatt_char(
-                        CTRL_UUID, bytes([CTRL_ABORT]), response=False
+                        CTRL_UUID, bytes([CTRL_ABORT]), response=True
                     )
                 except Exception:
                     pass

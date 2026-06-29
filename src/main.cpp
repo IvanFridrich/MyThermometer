@@ -174,28 +174,31 @@ struct OtaCtrlCb final : NimBLECharacteristicCallbacks {
             s_bleOta.active   = true;
             logLine(cfg::log::Level::kInfo, "BLE-OTA", "started");
         } else if (d[0] == 0x02U) {
-            // Commit: verify + set boot partition + restart
+            // Commit: verify + set boot partition + restart.
+            // esp_ota_end() reads+verifies 1.3 MB from flash — can take several
+            // seconds. Running it here blocks the BLE task, which prevents NimBLE
+            // from maintaining the LL connection and sending the ATT Write Response.
+            // Spawn a separate task so onWrite() returns immediately; the ATT Write
+            // Response is sent right away, then the task does the heavy work.
             if (!s_bleOta.active) {
                 bleOtaNotify(0xFFU);
                 return;
             }
             s_bleOta.active = false;
-            if (esp_ota_end(s_bleOta.handle) != ESP_OK) {
-                logLine(cfg::log::Level::kError, "BLE-OTA", "verify failed");
-                bleOtaNotify(0xFFU);
-                return;
-            }
-            esp_ota_set_boot_partition(s_bleOta.target);
-            logLine(cfg::log::Level::kInfo, "BLE-OTA", "success, restarting");
-            bleOtaNotify(0x00U);
-            // Must not call esp_restart() here: onWrite runs in the BLE task,
-            // so blocking here prevents NimBLE from sending the ATT Write Response
-            // and the STATUS notify. Spawn a low-priority task so onWrite returns
-            // first, then restart 400 ms later once NimBLE has flushed.
             xTaskCreate([](void*) {
-                vTaskDelay(pdMS_TO_TICKS(400));
+                if (esp_ota_end(s_bleOta.handle) != ESP_OK) {
+                    logLine(cfg::log::Level::kError, "BLE-OTA", "verify failed");
+                    bleOtaNotify(0xFFU);
+                    vTaskDelete(nullptr);
+                    return;
+                }
+                esp_ota_set_boot_partition(s_bleOta.target);
+                logLine(cfg::log::Level::kInfo, "BLE-OTA", "success, restarting");
+                bleOtaNotify(0x00U);
+                vTaskDelay(pdMS_TO_TICKS(400)); // let STATUS notify be transmitted
                 esp_restart();
-            }, "ota_rst", 2048, nullptr, tskIDLE_PRIORITY + 1, nullptr);
+            }, "ota_commit", 4096, nullptr, tskIDLE_PRIORITY + 2, nullptr);
+            // onWrite returns here — NimBLE sends ATT Write Response to the client
         } else if (d[0] == 0x03U) {
             // Abort
             if (s_bleOta.active) {

@@ -205,7 +205,7 @@ async def upload(firmware_path: str, address: str | None) -> None:
             print("Waiting for STATUS notify…")
 
             try:
-                await asyncio.wait_for(ota_done.wait(), timeout=20.0)
+                await asyncio.wait_for(ota_done.wait(), timeout=60.0)
             except asyncio.TimeoutError:
                 print("Timeout waiting for STATUS notify.", file=sys.stderr)
                 try:

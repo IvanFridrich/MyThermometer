@@ -158,6 +158,13 @@ struct OtaCtrlCb final : NimBLECharacteristicCallbacks {
         }
         if (d[0] == 0x01U && len == 5U) {
             // Start OTA: [0x01, firmware_size_le_u32]
+            // If a previous session was not committed/aborted (e.g. client
+            // disconnected mid-transfer), clean up before starting a new one.
+            if (s_bleOta.active) {
+                esp_ota_abort(s_bleOta.handle);
+                s_bleOta.active = false;
+                logLine(cfg::log::Level::kWarn, "BLE-OTA", "previous session was not committed — aborted");
+            }
             const uint32_t sz = static_cast<uint32_t>(d[1]) |
                                 (static_cast<uint32_t>(d[2]) << 8U) |
                                 (static_cast<uint32_t>(d[3]) << 16U) |
@@ -235,8 +242,21 @@ struct OtaDataCb final : NimBLECharacteristicCallbacks {
 static OtaCtrlCb s_otaCtrlCb;
 static OtaDataCb s_otaDataCb;
 
+struct OtaServerCb final : NimBLEServerCallbacks {
+    void onDisconnect(NimBLEServer* /*srv*/, NimBLEConnInfo& /*info*/, int reason) override {
+        if (s_bleOta.active) {
+            esp_ota_abort(s_bleOta.handle);
+            s_bleOta.active = false;
+            logLine(cfg::log::Level::kInfo, "BLE-OTA",
+                    "client disconnected mid-OTA — aborted");
+        }
+    }
+};
+static OtaServerCb s_otaServerCb;
+
 void setupBleOtaGatt() {
     NimBLEServer*  srv = NimBLEDevice::createServer();
+    srv->setCallbacks(&s_otaServerCb);
     NimBLEService* svc = srv->createService(cfg::ble::kOtaSvcUuid);
 
     NimBLECharacteristic* ctrl =

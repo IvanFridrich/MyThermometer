@@ -181,7 +181,20 @@ constexpr char kOtaStatusUuid[] = "f27b53ad-c63d-49a0-8c0f-9309d08f1fd0";
 } // namespace ble
 
 // ----------------------------------------------------------------------------
-// 9. WIFI / WEB / mDNS  (credentials are in secrets.h, NOT here)
+// 9. BLE GATT OTA  (firmware update over BLE; alternative to HTTPS OTA)
+// ----------------------------------------------------------------------------
+namespace ota {
+// DATA chunk queue between onWrite callback and the writer task.
+// With response=True the queue rarely has >1 item, but 8 gives margin.
+constexpr uint8_t  kQueueDepth      = 8;
+constexpr uint16_t kMaxChunkBytes   = 252;   // ATT_MTU(255) – 3 bytes ATT overhead
+constexpr uint32_t kWriterStackBytes= 4096;
+constexpr uint8_t  kWriterPriority  = 7;     // above core0/core1 so esp_ota_write isn't starved
+constexpr uint32_t kNotifyDelayMs   = 1500;  // delay before esp_restart() so STATUS notify is transmitted
+} // namespace ota
+
+// ----------------------------------------------------------------------------
+// 10. WIFI / WEB / mDNS  (credentials are in secrets.h, NOT here)
 // ----------------------------------------------------------------------------
 namespace net {
 constexpr char     kMdnsHostname[] = "teplomer"; // -> http://teplomer.local

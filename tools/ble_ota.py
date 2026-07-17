@@ -178,13 +178,20 @@ async def upload(firmware_path: str, address: str | None) -> None:
                 ]
             )
             await client.write_gatt_char(CTRL_UUID, ctrl_start, response=True)
+            # Clear the event AFTER sending CTRL_START so any STATUS notify that
+            # arrived during start_notify() (from a previous OTA session) is
+            # discarded and does not prematurely fire ota_done.
+            ota_done.clear()
+            ota_success = False
             print(f"OTA started ({size} B), uploading…")
 
             # Stream DATA chunks with response=True for per-chunk flow control.
             # response=False (write-without-response) flooded NimBLE's MSYS pool
             # and caused silent disconnects; response=True limits in-flight data
             # to one chunk at a time and surfaces any write error immediately.
-            chunk_size = max(1, mtu - 3)  # ATT overhead: 1 opcode + 2 handle
+            # Cap at 252: bleak on Windows may report mtu_size=517 (local preferred
+            # MTU, not negotiated), which would exceed the ATT_MTU(255)-3 limit.
+            chunk_size = min(max(1, mtu - 3), 252)
             sent = 0
             for offset in range(0, size, chunk_size):
                 if disconnected.is_set():

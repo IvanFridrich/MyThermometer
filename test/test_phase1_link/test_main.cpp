@@ -74,24 +74,36 @@ TEST_CASE("OneWireBusFake readRomId") {
 // ---------------------------------------------------------------------------
 // DisplayFake
 // ---------------------------------------------------------------------------
-TEST_CASE("DisplayFake print and row inspection") {
-    Display disp(cfg::pin::kLcdRs, cfg::pin::kLcdEn, cfg::pin::kLcdD4, cfg::pin::kLcdD5,
-                 cfg::pin::kLcdD6, cfg::pin::kLcdD7);
+TEST_CASE("DisplayFake records frames and brightness") {
+    Display disp;
     CHECK(disp.init().isOk());
-    disp.setCursor(0, 0);
-    disp.print("I:23.4 ");
-    CHECK(std::string(disp.row(0)).substr(0, 7) == "I:23.4 ");
+
+    DisplayFrame f;
+    f.innerC100 = 2345;
+    f.outerC100 = 1820;
+    f.status    = DisplayStatus::kOuterTemp;
+    disp.render(f);
+    CHECK(disp.lastFrame() == f);
+    CHECK(disp.renderCount() == 1);
+
+    f.status = DisplayStatus::kFire;
+    disp.render(f);
+    CHECK(disp.lastFrame().status == DisplayStatus::kFire);
+    CHECK(disp.renderCount() == 2);
+
+    disp.setBrightness(200);
+    CHECK(disp.lastBrightness() == 200);
+
+    disp.tick();
+    CHECK(disp.tickCount() == 1);
 }
 
 // ---------------------------------------------------------------------------
 // PwmFake
 // ---------------------------------------------------------------------------
-TEST_CASE("PwmFake tone and contrast") {
+TEST_CASE("PwmFake tone") {
     Pwm pwm;
-    CHECK(pwm.initContrast(cfg::pin::kLcdContrastV0, cfg::ledc::kContrastChannel).isOk());
     CHECK(pwm.initBuzzer(cfg::pin::kBuzzer, cfg::ledc::kBuzzerChannel).isOk());
-    pwm.setContrastDuty(200);
-    CHECK(pwm.lastContrastDuty() == 200);
     pwm.tone(cfg::beep::kBootToneHz);
     CHECK(pwm.toneActive());
     CHECK(pwm.lastToneHz() == cfg::beep::kBootToneHz);

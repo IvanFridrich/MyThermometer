@@ -23,7 +23,7 @@ TEST_CASE("defaults match the NVS contract (§6.4)") {
     CHECK(m.diffHysteresisC100 == 50);
     CHECK(m.fireThrC100 == 4500);
     CHECK(m.fireHysteresisC100 == 200);
-    CHECK(m.lcdContrastPwm == cfg::ledc::kContrastDefault);
+    CHECK(m.lcdContrastPwm == cfg::ledc::kBacklightDefault);
     CHECK(m.emailEnabled == true);
     CHECK(m.windowGoal == static_cast<uint8_t>(cfg::window_advisor::Goal::kCoolRoom));
 }

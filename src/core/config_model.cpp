@@ -14,7 +14,7 @@ ConfigModel ConfigModel::defaults() {
     m.fireThrC100 = static_cast<int16_t>(cfg::temp::kFireThresholdC * cfg::sample::kStoreScale);
     m.fireHysteresisC100 = static_cast<int16_t>(
         (cfg::temp::kFireThresholdC - cfg::temp::kFireClearC) * cfg::sample::kStoreScale);
-    m.lcdContrastPwm = cfg::ledc::kContrastDefault;
+    m.lcdContrastPwm = cfg::ledc::kBacklightDefault;
     m.emailEnabled   = true;
     m.windowGoal     = static_cast<uint8_t>(cfg::window_advisor::kDefaultGoal);
     return m;

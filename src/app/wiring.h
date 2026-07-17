@@ -41,15 +41,14 @@ inline OneWireBus outerBus() {
 }
 
 // ---------------------------------------------------------------------------
-// Display — HD44780 2×8, 4-bit, pin map from Config.h
+// Display — ST7789 1.9" via LVGL + LovyanGFX; pins read from cfg:: in target
 // ---------------------------------------------------------------------------
 inline Display display() {
-    return Display(cfg::pin::kLcdRs, cfg::pin::kLcdEn, cfg::pin::kLcdD4, cfg::pin::kLcdD5,
-                   cfg::pin::kLcdD6, cfg::pin::kLcdD7);
+    return Display{};
 }
 
 // ---------------------------------------------------------------------------
-// PWM — contrast (LEDC ch1) + buzzer (LEDC ch0)
+// PWM — buzzer (LEDC ch0)
 // ---------------------------------------------------------------------------
 inline Pwm pwm() {
     return Pwm{};

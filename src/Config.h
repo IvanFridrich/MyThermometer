@@ -19,51 +19,44 @@
 namespace cfg {
 
 // ----------------------------------------------------------------------------
-// 1. PIN MAP  (FILL THESE IN for your wiring — placeholders below)
+// 1. PIN MAP
 //    Two DS18B20 each on its OWN OneWire bus (robustness + easy identification).
-//    LCD HD44780 in 4-bit mode (Arduino LiquidCrystal).
-//    Passive buzzer + LCD contrast both driven by LEDC PWM.
+//    Waveshare 1.9" ST7789 IPS 170x320 over SPI (LVGL + LovyanGFX).
+//    Passive buzzer driven by LEDC PWM; display backlight by LEDC PWM.
 // ----------------------------------------------------------------------------
 namespace pin {
 // --- DS18B20 (separate buses) ---
 constexpr uint8_t kOneWireInside  = 15; // inside sensor bus (fire detection)
 constexpr uint8_t kOneWireOutside = 14; // outside sensor bus
 
-// --- HD44780 2x8 LCD, 4-bit ---
-constexpr uint8_t kLcdRs = 42;
-constexpr uint8_t kLcdEn = 41;
-constexpr uint8_t kLcdD4 = 5;
-constexpr uint8_t kLcdD5 = 18;
-constexpr uint8_t kLcdD6 = 38; // GPIO 19 = USB D- on WROOM — use 38
-constexpr uint8_t kLcdD7 = 21;
+// --- ST7789 SPI display (GPIO 19/20 = USB D-/D+ on WROOM — forbidden) ---
+constexpr uint8_t kDispMosi      = 5;
+constexpr uint8_t kDispSclk      = 18;
+constexpr uint8_t kDispCs        = 21;
+constexpr uint8_t kDispDc        = 38;
+constexpr uint8_t kDispRst       = 41;
+constexpr uint8_t kDispBacklight = 11; // LEDC PWM brightness
 
 // --- PWM outputs ---
-constexpr uint8_t kBuzzer        = 9;  // passive buzzer (tone generation)
-constexpr uint8_t kLcdContrastV0 = 13; // PWM -> R + C low-pass -> LCD V0
-constexpr uint8_t kLcdBacklight  = 11; // optional; set kBacklightControlled
+constexpr uint8_t kBuzzer = 9; // passive buzzer (tone generation)
 } // namespace pin
 
 // ----------------------------------------------------------------------------
 // 2. LEDC (PWM) CHANNELS / TIMERS
-//    Buzzer needs a variable-frequency channel (tones); contrast a fixed-freq
-//    high-resolution channel (smooth DC after RC filter).
+//    Buzzer needs a variable-frequency channel (tones); backlight a fixed-freq
+//    channel. They must NOT share a timer: ledcWriteTone() reconfigures the
+//    whole timer, which would corrupt the backlight duty.
 // ----------------------------------------------------------------------------
 namespace ledc {
 constexpr uint8_t kBuzzerChannel    = 0; // Timer 0 (ch/2 % 4 = 0)
-constexpr uint8_t kBacklightChannel = 2; // Timer 1 (ch/2 % 4 = 1) — reserved, not used
-constexpr uint8_t kContrastChannel  = 4; // Timer 2 (ch/2 % 4 = 2) — must NOT share a timer
-                                         // with the buzzer: ledcWriteTone() reconfigures
-                                         // the whole timer, which would corrupt V0 duty
+constexpr uint8_t kBacklightChannel = 2; // Timer 1 (ch/2 % 4 = 1)
 
-constexpr uint32_t kContrastFreqHz  = 25000; // above audible; RC-smoothed
-constexpr uint8_t  kContrastResBits = 8;     // 0..255 duty (NVS uint8)
-constexpr uint8_t  kContrastDefault = 128;   // startup duty (tune on HW)
+constexpr uint32_t kBacklightFreqHz  = 25000; // above audible
+constexpr uint8_t  kBacklightResBits = 8;     // 0..255 duty (NVS uint8)
+constexpr uint8_t  kBacklightDefault = 128;   // startup duty
 
 constexpr uint8_t kBuzzerResBits = 10;
 } // namespace ledc
-
-// Set false if backlight is hard-wired ON (then kLcdBacklight is unused).
-constexpr bool kBacklightControlled = false;
 
 // ----------------------------------------------------------------------------
 // 3. TEMPERATURE MEASUREMENT
@@ -186,11 +179,12 @@ constexpr char kOtaStatusUuid[] = "f27b53ad-c63d-49a0-8c0f-9309d08f1fd0";
 namespace ota {
 // DATA chunk queue between onWrite callback and the writer task.
 // With response=True the queue rarely has >1 item, but 8 gives margin.
-constexpr uint8_t  kQueueDepth      = 8;
-constexpr uint16_t kMaxChunkBytes   = 252;   // ATT_MTU(255) – 3 bytes ATT overhead
-constexpr uint32_t kWriterStackBytes= 4096;
-constexpr uint8_t  kWriterPriority  = 7;     // above core0/core1 so esp_ota_write isn't starved
-constexpr uint32_t kNotifyDelayMs   = 1500;  // delay before esp_restart() so STATUS notify is transmitted
+constexpr uint8_t  kQueueDepth       = 8;
+constexpr uint16_t kMaxChunkBytes    = 252; // ATT_MTU(255) – 3 bytes ATT overhead
+constexpr uint32_t kWriterStackBytes = 4096;
+constexpr uint8_t  kWriterPriority   = 7; // above core0/core1 so esp_ota_write isn't starved
+constexpr uint32_t kNotifyDelayMs =
+    1500; // delay before esp_restart() so STATUS notify is transmitted
 } // namespace ota
 
 // ----------------------------------------------------------------------------
@@ -227,16 +221,29 @@ constexpr size_t   kBodyBufSize   = 512; // email body scratch buffer (plain-tex
 } // namespace email
 
 // ----------------------------------------------------------------------------
-// 11. DISPLAY (2x8 chars; default shows temperatures; IP/host shown briefly)
+// 11. DISPLAY  (Waveshare 1.9" ST7789 IPS 170x320, SPI, LVGL v9 + LovyanGFX)
+//     Landscape orientation: logical 320x170. Panel quirk: ST7789 GRAM is
+//     240x320, the 170-wide glass is centred -> offset_x = (240-170)/2 = 35.
+//     Keep in sync with include/lv_conf.h (preprocessor-level LVGL config).
 // ----------------------------------------------------------------------------
-namespace lcd {
-constexpr uint8_t kCols = 8;
-constexpr uint8_t kRows = 2;
+namespace display {
+constexpr uint16_t kWidth    = 320; // logical, after rotation
+constexpr uint16_t kHeight   = 170;
+constexpr uint8_t  kRotation = 1;   // lgfx setRotation -> landscape
+constexpr uint16_t kPanelW   = 170; // native panel size (portrait, pre-rotation)
+constexpr uint16_t kPanelH   = 320;
+constexpr uint16_t kMemW     = 240; // ST7789 GRAM width
+constexpr uint16_t kMemH     = 320;
+constexpr uint16_t kOffsetX  = 35;       // (240-170)/2 — Waveshare 1.9" centring
+constexpr uint32_t kSpiHz    = 40000000; // 40 MHz — ST7789 safe; 80 MHz possible on short wiring
+
+// LVGL partial draw buffer height (two buffers of kWidth x kDrawBufLines px).
+constexpr uint16_t kDrawBufLines = 24;
+
+constexpr uint32_t kRefreshMs = 1000; // redraw cadence (unchanged from HD44780)
 // On WiFi (re)connect, show hostname/IP for this long, then back to temps.
-constexpr uint32_t kShowAddressMs = 60UL * 1000UL; // ~1 minute
-constexpr uint32_t kRefreshMs     = 1000;          // redraw cadence
-constexpr uint8_t  kDegreeGlyph   = 1;             // custom char slot for ° (slot 0 = \x00 = null)
-} // namespace lcd
+constexpr uint32_t kShowAddressMs = 60UL * 1000UL; // reserved for future IP page
+} // namespace display
 
 // ----------------------------------------------------------------------------
 // 12. WATCHDOG / SAFETY
@@ -259,7 +266,7 @@ namespace task {
 constexpr int kCoreNet = 0; // wifi + ble
 constexpr int kCoreApp = 1; // everything else
 
-constexpr uint32_t kStackSensor  = 4096;
+constexpr uint32_t kStackSensor  = 8192; // core1Task renders LVGL (sw draw + Montserrat-48)
 constexpr uint32_t kStackDisplay = 3072;
 constexpr uint32_t kStackWeb     = 8192;
 constexpr uint32_t kStackBle     = 4096;

@@ -57,8 +57,7 @@ namespace {
 
 OneWireBus    g_innerBus(cfg::pin::kOneWireInside);
 OneWireBus    g_outerBus(cfg::pin::kOneWireOutside);
-Display       g_lcd(cfg::pin::kLcdRs, cfg::pin::kLcdEn, cfg::pin::kLcdD4, cfg::pin::kLcdD5,
-                    cfg::pin::kLcdD6, cfg::pin::kLcdD7);
+Display       g_display; // ST7789 + LVGL; pins from cfg::pin (target reads directly)
 Pwm           g_pwm;
 WifiHal       g_wifi;
 NvsStore      g_nvs("thermo");
@@ -536,7 +535,8 @@ void handleApiConfig() {
     g_webConfig = next; // Core 1 latches this into g_config next cycle
     taskEXIT_CRITICAL(&g_mux);
     saveConfig(next);
-    g_pwm.setContrastDuty(next.lcdContrastPwm);
+    // Core 0 caller; setBrightness touches only LEDC — safe cross-core.
+    g_display.setBrightness(next.lcdContrastPwm);
     logLine(cfg::log::Level::kInfo, "WEB", "config updated");
     g_server.send(200, "text/plain", "ok");
 }
@@ -588,55 +588,23 @@ void handleAction() {
 }
 
 // ---------------------------------------------------------------------------
-// LCD rendering (Core 1)
+// Display rendering (Core 1)
 // ---------------------------------------------------------------------------
-// Format a temperature into an 8-char LCD row.
-// Layout: prefix(1) + %5.1f right-justified(5) + CGRAM °(1) + 'C'(1) = 8 chars.
-// '\x01' is CGRAM slot kDegreeGlyph (custom bitmap, ROM-independent). Slot 1
-// avoids the null-terminator issue of slot 0 ('\x00'). '\x01C' would parse as
-// hex 0x1C, so the 'C' is separated via adjacent string literal concatenation.
-static void fmtTempRow(char* buf, size_t bufsz, char prefix, Temperature c100) {
-    int n;
-    if (c100 == kTempInvalid) {
-        n = snprintf(buf, bufsz, "%c  --.-\x01", prefix); // 1 + 2 + 4 + 1 = 8
-    } else {
-        n = snprintf(buf, bufsz,
-                     "%c%5.1f\x01"
-                     "C",
-                     prefix, c100 / 100.0); // 1+5+1+1 = 8
-    }
-    if (n < 0) {
-        buf[0] = '\0';
-    }
-}
-
-void renderLcd(const json_api::CurrentStatus& s) {
-    // Row 0: inner temperature — always visible.
-    char row0[cfg::lcd::kCols + 1];
-    fmtTempRow(row0, sizeof(row0), 'I', s.innerC100);
-    g_lcd.setCursor(0, 0);
-    g_lcd.print(row0);
-
-    // Row 1: alarm/status when active; outer temperature otherwise.
-    // Priority: FIRE! > sensor fault > WiFi down > outer temp.
-    char row1[cfg::lcd::kCols + 1];
+void renderDisplay(const json_api::CurrentStatus& s) {
+    DisplayFrame f;
+    f.innerC100 = s.innerC100;
+    f.outerC100 = s.outerC100;
+    // Priority: FIRE! > sensor fault > WiFi down > outer temp (same as HD44780).
     if (s.fire) {
-        if (snprintf(row1, sizeof(row1), "FIRE!   ") < 0) {
-            row1[0] = '\0';
-        }
+        f.status = DisplayStatus::kFire;
     } else if (s.sensorFault) {
-        if (snprintf(row1, sizeof(row1), "SENSOR  ") < 0) {
-            row1[0] = '\0';
-        }
+        f.status = DisplayStatus::kSensorFault;
     } else if (!g_wifi.isConnected()) {
-        if (snprintf(row1, sizeof(row1), "WiFi DN ") < 0) {
-            row1[0] = '\0';
-        }
+        f.status = DisplayStatus::kWifiDown;
     } else {
-        fmtTempRow(row1, sizeof(row1), 'O', s.outerC100);
+        f.status = DisplayStatus::kOuterTemp;
     }
-    g_lcd.setCursor(0, 1);
-    g_lcd.print(row1);
+    g_display.render(f);
 }
 
 // ---------------------------------------------------------------------------
@@ -773,9 +741,9 @@ void appendHistory() {
             lastHistory = now;
             appendHistory();
         }
-        if (now - lastLcd >= cfg::lcd::kRefreshMs) {
+        if (now - lastLcd >= cfg::display::kRefreshMs) {
             lastLcd = now;
-            renderLcd(snapshotCopy());
+            renderDisplay(snapshotCopy());
         }
         const uint16_t hz = g_beep.tick(now);
         if (hz != 0) {
@@ -783,6 +751,7 @@ void appendHistory() {
         } else {
             g_pwm.noTone();
         }
+        g_display.tick(); // lv_timer_handler — LVGL runs exclusively on this core
         g_sys.wdtFeed();
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -1022,17 +991,14 @@ void setup() {
         addWindowFlags(cfg::flag::kBrownoutRecover); // recorded in the first history record (§8.2)
     }
 
-    g_lcd.init();
-    // Load a custom ° glyph into CGRAM slot kDegreeGlyph (slot 0 = '\0', unusable
-    // in C strings, so we use slot 1). Bitmap: 5×8, small circle at top of cell.
-    static const uint8_t kDegreeBitmap[8] = {0x0E, 0x11, 0x11, 0x0E, 0x00, 0x00, 0x00, 0x00};
-    g_lcd.createChar(cfg::lcd::kDegreeGlyph, kDegreeBitmap);
-    g_pwm.initContrast(cfg::pin::kLcdContrastV0, cfg::ledc::kContrastChannel);
+    if (!g_display.init().isOk()) {
+        logLine(cfg::log::Level::kError, "DISP", "display init failed");
+    }
     g_pwm.initBuzzer(cfg::pin::kBuzzer, cfg::ledc::kBuzzerChannel);
 
     loadConfig();
     g_beep.setEnabled(g_config.beeperEnabled);
-    g_pwm.setContrastDuty(g_config.lcdContrastPwm);
+    g_display.setBrightness(g_config.lcdContrastPwm);
 
     // Read each sensor's ROM ID once for diagnostics.
     const Result<uint64_t> innerRom = g_innerBus.readRomId();

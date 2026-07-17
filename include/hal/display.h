@@ -2,39 +2,56 @@
 #include <cstdint>
 
 #include "result.h"
+#include "types.h"
 
-#ifndef NATIVE_BUILD
-#include <LiquidCrystal.h> // Arduino LiquidCrystal — target build only
-#endif
+// HAL: Waveshare 1.9" ST7789 IPS 320x170 (landscape) driven by LVGL v9 +
+// LovyanGFX (target) / value recorder (fake). Semantic API: the domain passes
+// values, never pixels. All LVGL/LGFX state is file-static in display_target.cpp
+// so this header compiles on the host with no library includes.
+//
+// Threading: init()/render()/tick() are Core-1-only (LVGL is not thread-safe).
+// setBrightness() touches only LEDC and is safe from any core (web handler on
+// Core 0 calls it).
 
-// HAL: HD44780 2×8 LCD in 4-bit mode.
-// Target: LiquidCrystal Arduino library (Phase 3).  Fake: in-memory row buffers.
+enum class DisplayStatus : uint8_t { kOuterTemp, kFire, kSensorFault, kWifiDown };
+
+struct DisplayFrame {
+    Temperature   innerC100{kTempInvalid}; // centi-degC; kTempInvalid -> "--.-"
+    Temperature   outerC100{kTempInvalid};
+    DisplayStatus status{DisplayStatus::kOuterTemp};
+
+    bool operator==(const DisplayFrame& o) const {
+        return innerC100 == o.innerC100 && outerC100 == o.outerC100 && status == o.status;
+    }
+};
+
 class Display {
   public:
-    Display(uint8_t rs, uint8_t en, uint8_t d4, uint8_t d5, uint8_t d6, uint8_t d7);
+    Display() = default; // target reads pins from cfg::pin / cfg::display directly
 
-    Result<void> init();
-    void         clear();
-    void         setCursor(uint8_t col, uint8_t row);
-    void         print(const char* text);
-
-    // Load a custom character (e.g. degree symbol) into CGRAM slot.
-    void createChar(uint8_t slot, const uint8_t* bitmap8bytes);
+    Result<void> init();                            // gfx + LVGL + widgets + backlight LEDC
+    void         setBrightness(uint8_t duty);       // 0..255 (NVS "contrast" value)
+    void         render(const DisplayFrame& frame); // updates labels iff frame changed
+    void         tick();                            // lv_timer_handler(); call every loop pass
 
 #ifdef NATIVE_BUILD
   public:
-    // Inspection API — row content after print() calls, null-terminated.
-    const char* row(uint8_t r) const { return (r < 2U) ? rows_[r] : ""; }
-    void        resetFake();
+    const DisplayFrame& lastFrame() const { return lastFrame_; }
+    uint8_t             lastBrightness() const { return brightness_; }
+    uint32_t            renderCount() const { return renderCount_; }
+    uint32_t            tickCount() const { return tickCount_; }
+    void                resetFake();
 
   private:
-    char    rows_[2][9]{}; // 8 chars + NUL per row
-    uint8_t curCol_{0};
-    uint8_t curRow_{0};
+    DisplayFrame lastFrame_{};
+    uint8_t      brightness_{0};
+    uint32_t     renderCount_{0};
+    uint32_t     tickCount_{0};
 #endif
 
 #ifndef NATIVE_BUILD
   private:
-    LiquidCrystal lcd_; // 4-bit HD44780 driver, constructed from the pin map
+    DisplayFrame cached_{};          // last rendered frame (change detection)
+    bool         firstRender_{true}; // force initial paint
 #endif
 };

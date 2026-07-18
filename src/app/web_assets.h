@@ -56,8 +56,8 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
       <article>
         <header>Diagnostika</header>
         <dl class="diag">
-          <dt>Uptime</dt><dd id="uptime">–</dd>
-          <dt>WiFi RSSI</dt><dd id="rssi">–</dd>
+          <dt>Doba běhu</dt><dd id="uptime">–</dd>
+          <dt>WiFi signál (RSSI)</dt><dd id="rssi">–</dd>
           <dt>Volná paměť</dt><dd id="heap">–</dd>
           <dt>Min. volná paměť</dt><dd id="minheap">–</dd>
           <dt>ROM ID vnitřní</dt><dd id="romIn">–</dd>
@@ -72,8 +72,8 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
           <label><input type="checkbox" name="email" role="switch" /> E-mailové alarmy</label>
           <label>Cíl
             <select name="window_goal">
-              <option value="0">Chladit místnost (CoolRoom)</option>
-              <option value="1">Vytápět místnost (WarmRoom)</option>
+              <option value="0">Chladit místnost</option>
+              <option value="1">Vytápět místnost</option>
             </select>
           </label>
           <div class="grid">
@@ -294,7 +294,7 @@ function wireForms() {
       try {
         const params = action === "set-contrast" ? { contrast: $("cfgForm").contrast.value } : {};
         await postForm("/api/action/" + action, params);
-        $("actionMsg").textContent = "Akce '" + action + "' odeslána.";
+        $("actionMsg").textContent = "Akce „" + btn.textContent + "“ odeslána.";
       } catch (e) {
         $("actionMsg").textContent = "Akce selhala: " + e;
       }

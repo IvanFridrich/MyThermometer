@@ -180,7 +180,7 @@ function wireForms() {
       try {
         const params = action === "set-contrast" ? { contrast: $("cfgForm").contrast.value } : {};
         await postForm("/api/action/" + action, params);
-        $("actionMsg").textContent = "Akce '" + action + "' odeslána.";
+        $("actionMsg").textContent = "Akce „" + btn.textContent + "“ odeslána.";
       } catch (e) {
         $("actionMsg").textContent = "Akce selhala: " + e;
       }

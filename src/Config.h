@@ -230,6 +230,7 @@ constexpr uint32_t kMinIntervalMs = 60UL * 60UL * 1000UL; // 1 hour
 constexpr uint16_t kSmtpPort      = 465;                  // SSL (Gmail app password)
 constexpr uint32_t kSendTimeoutMs = 15000;
 constexpr size_t   kBodyBufSize   = 512; // email body scratch buffer (plain-text)
+constexpr uint8_t  kQueueDepth    = 4;   // mail-task job queue (web + alarm senders)
 } // namespace email
 
 // ----------------------------------------------------------------------------
@@ -278,6 +279,7 @@ namespace task {
 constexpr int kCoreNet = 0; // wifi + ble
 constexpr int kCoreApp = 1; // everything else
 
+constexpr uint32_t kStackMail    = 8192; // ESP-Mail-Client TLS needs a deep stack
 constexpr uint32_t kStackSensor  = 8192; // core1Task renders LVGL (sw draw + Montserrat-48)
 constexpr uint32_t kStackDisplay = 3072;
 constexpr uint32_t kStackWeb     = 8192;
@@ -289,6 +291,7 @@ constexpr uint8_t kPrioDisplay = 3;
 constexpr uint8_t kPrioWeb     = 4;
 constexpr uint8_t kPrioBle     = 4;
 constexpr uint8_t kPrioBeeper  = 6; // timing-sensitive
+constexpr uint8_t kPrioMail    = 3; // background; blocking SMTP must not starve web/ble
 } // namespace task
 
 // ----------------------------------------------------------------------------

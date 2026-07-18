@@ -51,7 +51,7 @@ Result<void> Mailer::send(const char* to, const char* subject, const char* body)
     }
 
     SMTP_Message message;
-    message.sender.name  = "Teplomer";
+    message.sender.name  = "Teploměr";
     message.sender.email = g_from;
     message.subject      = subject;
     message.addRecipient("", to);

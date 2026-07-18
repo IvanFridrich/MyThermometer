@@ -88,7 +88,7 @@ json_api::CurrentStatus g_snapshot;
 // Static scratch for JSON responses and email bodies (no heap; one writer each).
 char g_jsonCurrent[cfg::net::kJsonCurrentBufSize];
 char g_jsonHistory[cfg::net::kJsonHistoryBufSize];
-char g_emailBody[cfg::email::kBodyBufSize]; // written only on Core 0 web task
+char g_emailBody[cfg::email::kBodyBufSize]; // written only by the mail task
 // Copy of the ring buffer taken under g_mux so /api/history serializes outside the
 // critical section (the serialize loop is too long to hold the spinlock).
 HistoryBuffer g_histScratch;
@@ -111,6 +111,29 @@ StaticTask_t s_core0Tcb;
 StaticTask_t s_core1Tcb;
 StackType_t  s_core0Stack[cfg::task::kStackWeb];
 StackType_t  s_core1Stack[cfg::task::kStackSensor];
+
+// ---------------------------------------------------------------------------
+// Mail task (Core 0, §8.5): blocking SMTP lives in its own task so the web
+// task stays responsive during a 5-15 s send (buzzer/actions keep working).
+// Jobs carry a snapshot copy; the task is deliberately NOT WDT-registered —
+// the blocking send is bounded by the mailer's TCP timeout instead.
+// ---------------------------------------------------------------------------
+enum class MailJob : uint8_t { kStatus, kFireAlarm, kSensorAlarm };
+struct MailReq {
+    MailJob                 job;
+    json_api::CurrentStatus snap;
+};
+static StaticTask_t  s_mailTcb;
+static StackType_t   s_mailStack[cfg::task::kStackMail];
+static uint8_t       s_mailQueueStorage[cfg::email::kQueueDepth * sizeof(MailReq)];
+static StaticQueue_t s_mailQueueTcb;
+static QueueHandle_t s_mailQueue{nullptr};
+
+// Alarm mail queued or in flight — stops checkEmail from re-enqueueing every
+// cycle while the policy still reports "due" (it anchors on success only).
+// Guarded by g_mux (set on the Core 0 web task, cleared by the mail task).
+bool g_mailFirePending   = false;
+bool g_mailSensorPending = false;
 
 // NVS keys (§6.4).
 constexpr char kKeyBeeper[]   = "beeper";
@@ -568,20 +591,19 @@ void handleAction() {
             g_server.send(503, "text/plain", "WiFi not connected");
             return;
         }
-        logLine(cfg::log::Level::kInfo, "MAIL", "test email: connecting to SMTP");
-        // Manual sends bypass the §7 rate limiter. SMTP can exceed the WDT window,
-        // so unsubscribe this (web) task around the blocking send.
-        const json_api::CurrentStatus snap = snapshotCopy();
-        esp_task_wdt_delete(nullptr);
-        const bool ok =
-            g_mailer.send(RECIPIENT_EMAIL, "Teplomer: status", buildStatusBody(snap)).isOk();
-        if (esp_task_wdt_add(nullptr) != ESP_OK) {
-            logLine(cfg::log::Level::kError, "WDT", "wdt_add failed after SMTP (test-email)");
+        // Hand off to the mail task and respond immediately: a blocking SMTP
+        // send here (5-15 s) froze the web task — no UI feedback, no other
+        // actions (e.g. buzzer tests) until it finished. Manual sends bypass
+        // the §7 rate limiter; the result lands in the event log.
+        MailReq req;
+        req.job  = MailJob::kStatus;
+        req.snap = snapshotCopy();
+        if (xQueueSend(s_mailQueue, &req, 0) != pdTRUE) {
+            g_server.send(503, "text/plain", "mail queue full");
+            return;
         }
-        addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
-        logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
-                ok ? "test email: sent" : "test email: FAILED (check SMTP host/creds)");
-        g_server.send(ok ? 200 : 502, "text/plain", ok ? "sent" : "send failed");
+        logLine(cfg::log::Level::kInfo, "MAIL", "status email queued");
+        g_server.send(200, "text/plain", "queued");
         return;
     } else if (action == "restart") {
         g_server.send(200, "text/plain", "restarting");
@@ -797,14 +819,14 @@ void sendBleBeacon(const json_api::CurrentStatus& s) {
 // ---------------------------------------------------------------------------
 // Email body builders (Core 0 only; write into g_emailBody).
 // ---------------------------------------------------------------------------
-// Format one temperature value; buf must be at least 10 bytes.
+// Format one temperature value; buf must be at least 14 bytes (UTF-8 °C + sign).
 static void fmtTemp(char* buf, size_t sz, Temperature c100) {
     if (c100 == kTempInvalid) {
-        if (snprintf(buf, sz, "N/A") < 0) {
+        if (snprintf(buf, sz, "neznámá") < 0) {
             buf[0] = '\0';
         }
     } else {
-        if (snprintf(buf, sz, "%.1f C", c100 / 100.0) < 0) {
+        if (snprintf(buf, sz, "%.1f °C", c100 / 100.0) < 0) {
             buf[0] = '\0';
         }
     }
@@ -813,22 +835,22 @@ static void fmtTemp(char* buf, size_t sz, Temperature c100) {
 static const char* buildAlarmBody(const json_api::CurrentStatus& s, bool isFire) {
     char ip[16];
     g_wifi.getIp(ip, sizeof(ip));
-    char tIn[10];
-    char tOut[10];
+    char tIn[14];
+    char tOut[14];
     fmtTemp(tIn, sizeof(tIn), s.innerC100);
     fmtTemp(tOut, sizeof(tOut), s.outerC100);
     const uint32_t upH = s.uptimeS / 3600UL;
     const uint32_t upM = (s.uptimeS % 3600UL) / 60UL;
     const int      n   = snprintf(g_emailBody, sizeof(g_emailBody),
-                                  "=== TEPLOMER ALARM ===\r\n\r\n"
-                                         "Type:   %s\r\n\r\n"
-                                         "Inner:  %s\r\n"
-                                         "Outer:  %s\r\n\r\n"
-                                         "Uptime: %luh %02lum\r\n"
-                                         "IP:     %s\r\n"
-                                         "RSSI:   %d dBm\r\n"
-                                         "Heap:   %lu B\r\n",
-                           isFire ? "FIRE ALARM" : "Sensor fault", tIn, tOut,
+                                  "=== TEPLOMĚR — ALARM ===\r\n\r\n"
+                                         "Typ:       %s\r\n\r\n"
+                                         "Uvnitř:    %s\r\n"
+                                         "Venku:     %s\r\n\r\n"
+                                         "Doba běhu: %lu h %02lu min\r\n"
+                                         "IP:        %s\r\n"
+                                         "Signál:    %d dBm\r\n"
+                                         "Volná RAM: %lu B\r\n",
+                           isFire ? "POŽÁR!" : "Porucha čidla", tIn, tOut,
                                   static_cast<unsigned long>(upH), static_cast<unsigned long>(upM), ip,
                                   static_cast<int>(s.rssi), static_cast<unsigned long>(s.freeHeap));
     if (n < 0) {
@@ -840,30 +862,30 @@ static const char* buildAlarmBody(const json_api::CurrentStatus& s, bool isFire)
 static const char* buildStatusBody(const json_api::CurrentStatus& s) {
     char ip[16];
     g_wifi.getIp(ip, sizeof(ip));
-    char tIn[10];
-    char tOut[10];
+    char tIn[14];
+    char tOut[14];
     fmtTemp(tIn, sizeof(tIn), s.innerC100);
     fmtTemp(tOut, sizeof(tOut), s.outerC100);
     const uint32_t upH = s.uptimeS / 3600UL;
     const uint32_t upM = (s.uptimeS % 3600UL) / 60UL;
-    const int      n   = snprintf(g_emailBody, sizeof(g_emailBody),
-                                  "=== TEPLOMER STATUS ===\r\n\r\n"
-                                         "Inner:  %s\r\n"
-                                         "Outer:  %s\r\n"
-                                         "Fire:   %s  Sensor: %s  Diff: %s\r\n\r\n"
-                                         "Fire thr:  %.1f C / hyst %.1f C\r\n"
-                                         "Diff thr:  %.1f C / hyst %.1f C\r\n\r\n"
-                                         "Uptime: %luh %02lum\r\n"
-                                         "IP:     %s\r\n"
-                                         "RSSI:   %d dBm\r\n"
-                                         "Heap:   %lu B\r\n"
-                                         "Email:  %s  Beeper: %s\r\n",
-                                  tIn, tOut, s.fire ? "YES" : "no", s.sensorFault ? "YES" : "no",
-                           s.diffAlarm ? "YES" : "no", s.fireThrC100 / 100.0,
-                                  s.fireHystC100 / 100.0, s.diffThrC100 / 100.0, s.diffHystC100 / 100.0,
-                                  static_cast<unsigned long>(upH), static_cast<unsigned long>(upM), ip,
-                                  static_cast<int>(s.rssi), static_cast<unsigned long>(s.freeHeap),
-                           s.emailEnabled ? "on" : "off", s.beeperEnabled ? "on" : "off");
+    const int      n   = snprintf(
+        g_emailBody, sizeof(g_emailBody),
+        "=== TEPLOMĚR — STAV ===\r\n\r\n"
+               "Uvnitř:  %s\r\n"
+               "Venku:   %s\r\n"
+               "Požár: %s  Čidlo: %s  Rozdíl: %s\r\n\r\n"
+               "Práh požáru:  %.1f °C / hystereze %.1f °C\r\n"
+               "Práh rozdílu: %.1f °C / hystereze %.1f °C\r\n\r\n"
+               "Doba běhu: %lu h %02lu min\r\n"
+               "IP:        %s\r\n"
+               "Signál:    %d dBm\r\n"
+               "Volná RAM: %lu B\r\n"
+               "E-mail: %s  Bzučák: %s\r\n",
+        tIn, tOut, s.fire ? "ANO" : "ne", s.sensorFault ? "ANO" : "ne", s.diffAlarm ? "ANO" : "ne",
+        s.fireThrC100 / 100.0, s.fireHystC100 / 100.0, s.diffThrC100 / 100.0,
+        s.diffHystC100 / 100.0, static_cast<unsigned long>(upH), static_cast<unsigned long>(upM),
+        ip, static_cast<int>(s.rssi), static_cast<unsigned long>(s.freeHeap),
+        s.emailEnabled ? "zapnuto" : "vypnuto", s.beeperEnabled ? "zapnuto" : "vypnuto");
     if (n < 0) {
         g_emailBody[0] = '\0';
     }
@@ -871,45 +893,92 @@ static const char* buildStatusBody(const json_api::CurrentStatus& s) {
 }
 
 void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
-    // Only attempt while connected: an offline attempt would just fail, and we
-    // must not let it stand in for a real notification (the policy anchors on
-    // success only, but skipping offline also avoids a pointless WDT-off window).
+    // Only queue while connected: an offline attempt would just fail, and the
+    // policy anchors on success only.
     if (!g_wifi.isConnected()) {
         return;
     }
+    // The policy runs every cycle (it tracks edges); the pending flags only
+    // gate enqueueing so a slow or failing send is not queued again each cycle.
+    // g_email + pending flags are shared with the mail task -> g_mux.
+    taskENTER_CRITICAL(&g_mux);
     const bool fireDue =
-        g_email.shouldSend(email_policy::Type::kFire, s.fire, s.emailEnabled, nowMs);
-    const bool sensorDue =
-        g_email.shouldSend(email_policy::Type::kSensorFault, s.sensorFault, s.emailEnabled, nowMs);
-    if (!fireDue && !sensorDue) {
-        return;
-    }
-    // Both types have independent rate limiters and independent edges, so send
-    // each separately when due (e.g., a sensor detach during a fire triggers both).
-    esp_task_wdt_delete(nullptr); // SMTP can exceed the WDT window; unsubscribe for the duration
+        g_email.shouldSend(email_policy::Type::kFire, s.fire, s.emailEnabled, nowMs) &&
+        !g_mailFirePending;
     if (fireDue) {
-        const bool ok =
-            g_mailer.send(RECIPIENT_EMAIL, "Teplomer: POZAR", buildAlarmBody(s, true)).isOk();
-        if (ok) {
-            g_email.markSent(email_policy::Type::kFire, nowMs);
+        g_mailFirePending = true;
+    }
+    const bool sensorDue = g_email.shouldSend(email_policy::Type::kSensorFault, s.sensorFault,
+                                              s.emailEnabled, nowMs) &&
+                           !g_mailSensorPending;
+    if (sensorDue) {
+        g_mailSensorPending = true;
+    }
+    taskEXIT_CRITICAL(&g_mux);
+    // Both types have independent rate limiters and independent edges, so queue
+    // each separately when due (e.g., a sensor detach during a fire triggers both).
+    if (fireDue) {
+        MailReq req{MailJob::kFireAlarm, s};
+        if (xQueueSend(s_mailQueue, &req, 0) != pdTRUE) {
+            taskENTER_CRITICAL(&g_mux);
+            g_mailFirePending = false; // queue full — retry next cycle
+            taskEXIT_CRITICAL(&g_mux);
         }
-        addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
-        logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
-                ok ? "alarm email sent (fire)" : "alarm email failed (fire)");
     }
     if (sensorDue) {
-        const bool ok =
-            g_mailer.send(RECIPIENT_EMAIL, "Teplomer: porucha cidla", buildAlarmBody(s, false))
-                .isOk();
-        if (ok) {
-            g_email.markSent(email_policy::Type::kSensorFault, nowMs);
+        MailReq req{MailJob::kSensorAlarm, s};
+        if (xQueueSend(s_mailQueue, &req, 0) != pdTRUE) {
+            taskENTER_CRITICAL(&g_mux);
+            g_mailSensorPending = false; // queue full — retry next cycle
+            taskEXIT_CRITICAL(&g_mux);
+        }
+    }
+}
+
+// Sole owner of g_mailer and g_emailBody. Runs the blocking SMTP sends so the
+// web task never stalls. Not WDT-registered: the send duration is bounded by
+// the mailer's TCP timeout (cfg::email::kSendTimeoutMs), not by task health.
+void mailTask(void*) {
+    MailReq req;
+    for (;;) {
+        if (xQueueReceive(s_mailQueue, &req, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        bool ok = false;
+        switch (req.job) {
+        case MailJob::kStatus:
+            ok = g_mailer.send(RECIPIENT_EMAIL, "Teploměr: stav", buildStatusBody(req.snap)).isOk();
+            logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
+                    ok ? "status email sent" : "status email FAILED (check SMTP host/creds)");
+            break;
+        case MailJob::kFireAlarm:
+            ok = g_mailer.send(RECIPIENT_EMAIL, "Teploměr: POŽÁR!", buildAlarmBody(req.snap, true))
+                     .isOk();
+            taskENTER_CRITICAL(&g_mux);
+            if (ok) {
+                g_email.markSent(email_policy::Type::kFire, millis());
+            }
+            g_mailFirePending = false;
+            taskEXIT_CRITICAL(&g_mux);
+            logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
+                    ok ? "alarm email sent (fire)" : "alarm email failed (fire)");
+            break;
+        case MailJob::kSensorAlarm:
+            ok = g_mailer
+                     .send(RECIPIENT_EMAIL, "Teploměr: porucha čidla",
+                           buildAlarmBody(req.snap, false))
+                     .isOk();
+            taskENTER_CRITICAL(&g_mux);
+            if (ok) {
+                g_email.markSent(email_policy::Type::kSensorFault, millis());
+            }
+            g_mailSensorPending = false;
+            taskEXIT_CRITICAL(&g_mux);
+            logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
+                    ok ? "alarm email sent (sensor)" : "alarm email failed (sensor)");
+            break;
         }
         addWindowFlags(ok ? cfg::flag::kEmailSent : cfg::flag::kEmailFailed);
-        logLine(ok ? cfg::log::Level::kInfo : cfg::log::Level::kError, "MAIL",
-                ok ? "alarm email sent (sensor)" : "alarm email failed (sensor)");
-    }
-    if (esp_task_wdt_add(nullptr) != ESP_OK) {
-        logLine(cfg::log::Level::kError, "WDT", "wdt_add failed after SMTP (alarm)");
     }
 }
 
@@ -1053,6 +1122,11 @@ void setup() {
     }
 
     // Static stacks and TCBs: no heap allocation at task creation time (NFR-04/07).
+    s_mailQueue = xQueueCreateStatic(cfg::email::kQueueDepth, sizeof(MailReq), s_mailQueueStorage,
+                                     &s_mailQueueTcb);
+    xTaskCreateStaticPinnedToCore(mailTask, "mail", cfg::task::kStackMail, nullptr,
+                                  cfg::task::kPrioMail, s_mailStack, &s_mailTcb,
+                                  cfg::task::kCoreNet);
     xTaskCreateStaticPinnedToCore(core1Task, "core1", cfg::task::kStackSensor, nullptr,
                                   cfg::task::kPrioSensor, s_core1Stack, &s_core1Tcb,
                                   cfg::task::kCoreApp);

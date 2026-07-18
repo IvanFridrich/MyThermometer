@@ -82,8 +82,10 @@ TEST_CASE("DisplayFake records frames and brightness") {
     f.innerC100 = 2345;
     f.outerC100 = 1820;
     f.status    = DisplayStatus::kOuterTemp;
+    f.advice    = window::Advice::kOpen;
     disp.render(f);
     CHECK(disp.lastFrame() == f);
+    CHECK(disp.lastFrame().advice == window::Advice::kOpen);
     CHECK(disp.renderCount() == 1);
 
     f.status = DisplayStatus::kFire;

@@ -27,3 +27,4 @@ san_*
 sonar-scanner*
 .sonar/
 .scannerwork/
+__pycache__/

@@ -12,10 +12,10 @@
 // acceptance step (join AP, page, beacon, reconnect, sensor detach, WDT reset).
 
 #include <Arduino.h>
-#include <LittleFS.h>
-#include <cstring> // memcpy in OtaDataCb::onWrite // pulled in so ESP-Mail-Client's flash-FS layer links (no attachments used)
+#include <LittleFS.h> // pulled in so ESP-Mail-Client's flash-FS layer links (no attachments used)
 #include <WebServer.h>
 #include <WiFi.h>
+#include <cstring> // memcpy in OtaDataCb::onWrite
 #include <esp_task_wdt.h>
 #include <uri/UriBraces.h>
 
@@ -45,10 +45,10 @@
 #include "app/web_assets.h"
 #include "secrets.h"
 
+#include "certs.h"
 #include <NimBLEDevice.h>
 #include <esp_https_server.h>
 #include <esp_ota_ops.h>
-#include "certs.h"
 
 // ---------------------------------------------------------------------------
 // HAL + domain instances (constructed once; live for the program lifetime)
@@ -140,9 +140,9 @@ void logLine(cfg::log::Level level, const char* module, const char* msg) {
 struct OtaChunk {
     uint8_t  data[cfg::ota::kMaxChunkBytes];
     uint16_t len;
-    bool     doStart;   // sentinel: begin new session; len/data unused
-    bool     doCommit;  // sentinel: verify + restart; len/data unused
-    bool     doAbort;   // sentinel: abort current session; len/data unused
+    bool     doStart;  // sentinel: begin new session; len/data unused
+    bool     doCommit; // sentinel: verify + restart; len/data unused
+    bool     doAbort;  // sentinel: abort current session; len/data unused
 };
 
 struct BleOtaCtx {
@@ -187,8 +187,8 @@ static void otaWriterTask(void*) {
             }
             // OTA_WITH_SEQUENTIAL_WRITES: defers sector erase to write time;
             // avoids blocking the entire partition upfront (several seconds).
-            if (esp_ota_begin(s_bleOta.target, OTA_WITH_SEQUENTIAL_WRITES,
-                              &s_bleOta.handle) != ESP_OK) {
+            if (esp_ota_begin(s_bleOta.target, OTA_WITH_SEQUENTIAL_WRITES, &s_bleOta.handle) !=
+                ESP_OK) {
                 logLine(cfg::log::Level::kError, "BLE-OTA", "begin failed");
                 bleOtaNotify(0xFFU);
                 continue;
@@ -204,30 +204,28 @@ static void otaWriterTask(void*) {
             }
             // Drain queue so next session starts with an empty queue.
             OtaChunk discard;
-            while (xQueueReceive(s_otaQueue, &discard, 0) == pdTRUE) {}
+            while (xQueueReceive(s_otaQueue, &discard, 0) == pdTRUE) {
+            }
         } else if (chunk.doCommit) {
             if (!s_bleOta.active) {
                 bleOtaNotify(0xFFU);
                 continue;
             }
             if (s_bleOta.received != s_bleOta.expected) {
-                logLine(cfg::log::Level::kError, "BLE-OTA",
-                        "commit: size mismatch");
+                logLine(cfg::log::Level::kError, "BLE-OTA", "commit: size mismatch");
                 esp_ota_abort(s_bleOta.handle);
                 s_bleOta.active = false;
                 bleOtaNotify(0xFFU);
                 continue;
             }
             if (esp_ota_end(s_bleOta.handle) != ESP_OK) {
-                logLine(cfg::log::Level::kError, "BLE-OTA",
-                        "commit: verify failed");
+                logLine(cfg::log::Level::kError, "BLE-OTA", "commit: verify failed");
                 s_bleOta.active = false;
                 bleOtaNotify(0xFFU);
                 continue;
             }
             if (esp_ota_set_boot_partition(s_bleOta.target) != ESP_OK) {
-                logLine(cfg::log::Level::kError, "BLE-OTA",
-                        "commit: set boot partition failed");
+                logLine(cfg::log::Level::kError, "BLE-OTA", "commit: set boot partition failed");
                 s_bleOta.active = false;
                 bleOtaNotify(0xFFU);
                 continue;
@@ -241,14 +239,15 @@ static void otaWriterTask(void*) {
             esp_restart();
         } else if (s_bleOta.active) {
             // Data chunk.
-            if (esp_ota_write(s_bleOta.handle, chunk.data,
-                              static_cast<size_t>(chunk.len)) != ESP_OK) {
+            if (esp_ota_write(s_bleOta.handle, chunk.data, static_cast<size_t>(chunk.len)) !=
+                ESP_OK) {
                 logLine(cfg::log::Level::kError, "BLE-OTA", "write failed");
                 esp_ota_abort(s_bleOta.handle);
                 s_bleOta.active = false;
                 bleOtaNotify(0xFFU);
                 OtaChunk discard;
-                while (xQueueReceive(s_otaQueue, &discard, 0) == pdTRUE) {}
+                while (xQueueReceive(s_otaQueue, &discard, 0) == pdTRUE) {
+                }
             } else {
                 s_bleOta.received += static_cast<uint32_t>(chunk.len);
             }
@@ -272,13 +271,13 @@ struct OtaCtrlCb final : NimBLECharacteristicCallbacks {
                 bleOtaNotify(0xFFU);
                 return;
             }
-            s_bleOta.expected = static_cast<uint32_t>(d[1]) |
-                                (static_cast<uint32_t>(d[2]) << 8U) |
+            s_bleOta.expected = static_cast<uint32_t>(d[1]) | (static_cast<uint32_t>(d[2]) << 8U) |
                                 (static_cast<uint32_t>(d[3]) << 16U) |
                                 (static_cast<uint32_t>(d[4]) << 24U);
             // Drain stale queue items from any previous failed session.
             OtaChunk discard;
-            while (xQueueReceive(s_otaQueue, &discard, 0) == pdTRUE) {}
+            while (xQueueReceive(s_otaQueue, &discard, 0) == pdTRUE) {
+            }
             OtaChunk start{};
             start.doStart = true;
             xQueueSend(s_otaQueue, &start, 0);
@@ -307,12 +306,11 @@ struct OtaDataCb final : NimBLECharacteristicCallbacks {
         if (!s_bleOta.active) {
             return;
         }
-        const NimBLEAttValue val     = c->getValue();
-        const uint8_t*       d       = val.data();
-        const size_t         len     = val.size();
-        const uint16_t copyLen = (len <= cfg::ota::kMaxChunkBytes)
-                                     ? static_cast<uint16_t>(len)
-                                     : cfg::ota::kMaxChunkBytes;
+        const NimBLEAttValue val = c->getValue();
+        const uint8_t*       d   = val.data();
+        const size_t         len = val.size();
+        const uint16_t copyLen   = (len <= cfg::ota::kMaxChunkBytes) ? static_cast<uint16_t>(len)
+                                                                     : cfg::ota::kMaxChunkBytes;
         if (copyLen == 0) {
             return;
         }
@@ -330,8 +328,8 @@ struct OtaDataCb final : NimBLECharacteristicCallbacks {
     }
 };
 
-static OtaCtrlCb   s_otaCtrlCb;
-static OtaDataCb   s_otaDataCb;
+static OtaCtrlCb s_otaCtrlCb;
+static OtaDataCb s_otaDataCb;
 
 struct OtaServerCb final : NimBLEServerCallbacks {
     void onDisconnect(NimBLEServer* /*srv*/, NimBLEConnInfo& /*info*/, int /*reason*/) override {
@@ -345,16 +343,15 @@ struct OtaServerCb final : NimBLEServerCallbacks {
 static OtaServerCb s_otaServerCb;
 
 void setupBleOtaGatt() {
-    s_otaQueue = xQueueCreateStatic(cfg::ota::kQueueDepth, sizeof(OtaChunk),
-                                    s_otaQueueStorage, &s_otaQueueTcb);
+    s_otaQueue = xQueueCreateStatic(cfg::ota::kQueueDepth, sizeof(OtaChunk), s_otaQueueStorage,
+                                    &s_otaQueueTcb);
     // Static writer task on Core 1 at priority 7 (above all sensing tasks).
     // Core 1 avoids competing with NimBLE (Core 0) for CPU time during flash writes.
     s_otaWriterTask = xTaskCreateStaticPinnedToCore(
         otaWriterTask, "ota_writer", cfg::ota::kWriterStackBytes, nullptr,
-        cfg::ota::kWriterPriority, s_otaWriterStack, &s_otaWriterTcb,
-        cfg::task::kCoreApp);
+        cfg::ota::kWriterPriority, s_otaWriterStack, &s_otaWriterTcb, cfg::task::kCoreApp);
 
-    NimBLEServer*  srv = NimBLEDevice::createServer();
+    NimBLEServer* srv = NimBLEDevice::createServer();
     srv->setCallbacks(&s_otaServerCb);
     srv->advertiseOnDisconnect(true); // re-advertise after disconnect so device stays visible
 
@@ -364,13 +361,11 @@ void setupBleOtaGatt() {
         svc->createCharacteristic(cfg::ble::kOtaCtrlUuid, NIMBLE_PROPERTY::WRITE);
     ctrl->setCallbacks(&s_otaCtrlCb);
 
-    NimBLECharacteristic* data =
-        svc->createCharacteristic(cfg::ble::kOtaDataUuid,
-                                  NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    NimBLECharacteristic* data = svc->createCharacteristic(
+        cfg::ble::kOtaDataUuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
     data->setCallbacks(&s_otaDataCb);
 
-    s_bleOtaStatus =
-        svc->createCharacteristic(cfg::ble::kOtaStatusUuid, NIMBLE_PROPERTY::NOTIFY);
+    s_bleOtaStatus = svc->createCharacteristic(cfg::ble::kOtaStatusUuid, NIMBLE_PROPERTY::NOTIFY);
 
     logLine(cfg::log::Level::kInfo, "BLE-OTA", "GATT service registered");
 }
@@ -393,7 +388,7 @@ esp_err_t handleOtaPost(httpd_req_t* req) {
         const int chunk = (remaining < static_cast<int>(sizeof(otaBuf)))
                               ? remaining
                               : static_cast<int>(sizeof(otaBuf));
-        const int recv = httpd_req_recv(req, otaBuf, static_cast<size_t>(chunk));
+        const int recv  = httpd_req_recv(req, otaBuf, static_cast<size_t>(chunk));
         if (recv <= 0) {
             esp_ota_abort(handle);
             return ESP_FAIL;
@@ -594,6 +589,7 @@ void renderDisplay(const json_api::CurrentStatus& s) {
     DisplayFrame f;
     f.innerC100 = s.innerC100;
     f.outerC100 = s.outerC100;
+    f.advice    = s.windowAdvice; // window icon: open / closed / dimmed (no change)
     // Priority: FIRE! > sensor fault > WiFi down > outer temp (same as HD44780).
     if (s.fire) {
         f.status = DisplayStatus::kFire;
@@ -923,17 +919,17 @@ void checkEmail(const json_api::CurrentStatus& s, uint32_t nowMs) {
                 logLine(cfg::log::Level::kInfo, "WIFI", ip);
 
                 if (g_httpsServer == nullptr) {
-                    httpd_ssl_config_t conf   = HTTPD_SSL_CONFIG_DEFAULT();
+                    httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
                     // In ESP-IDF 4.x / Arduino-ESP32 2.x the server's own cert is
                     // named cacert_pem/cacert_len (confusingly); ESP-IDF 5.x renames
                     // it to servercert/servercert_len.
-                    conf.cacert_pem           = reinterpret_cast<const uint8_t*>(certs::kCert);
-                    conf.cacert_len           = sizeof(certs::kCert);
-                    conf.prvtkey_pem          = reinterpret_cast<const uint8_t*>(certs::kKey);
-                    conf.prvtkey_len          = sizeof(certs::kKey);
-                    conf.port_secure          = cfg::net::kOtaHttpsPort;
-                    conf.httpd.stack_size     = 10240; // TLS handshake needs extra stack
-                    conf.httpd.recv_wait_timeout = 30; // 30 s to receive firmware
+                    conf.cacert_pem              = reinterpret_cast<const uint8_t*>(certs::kCert);
+                    conf.cacert_len              = sizeof(certs::kCert);
+                    conf.prvtkey_pem             = reinterpret_cast<const uint8_t*>(certs::kKey);
+                    conf.prvtkey_len             = sizeof(certs::kKey);
+                    conf.port_secure             = cfg::net::kOtaHttpsPort;
+                    conf.httpd.stack_size        = 10240; // TLS handshake needs extra stack
+                    conf.httpd.recv_wait_timeout = 30;    // 30 s to receive firmware
                     conf.httpd.send_wait_timeout = 10;
                     if (httpd_ssl_start(&g_httpsServer, &conf) == ESP_OK) {
                         static const httpd_uri_t kOtaUri = {
@@ -977,7 +973,7 @@ void setup() {
     // Confirm new OTA firmware on the first boot after an OTA update so the
     // bootloader does not roll back to the previous partition.
     {
-        const esp_partition_t* running   = esp_ota_get_running_partition();
+        const esp_partition_t* running = esp_ota_get_running_partition();
         esp_ota_img_states_t   ota_state{};
         if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK &&
             ota_state == ESP_OTA_IMG_PENDING_VERIFY) {

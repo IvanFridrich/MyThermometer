@@ -93,6 +93,9 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
         <header>Akce</header>
         <div class="grid">
           <button class="secondary" data-action="test-beep">Test bzučáku</button>
+          <button class="secondary" data-action="test-open">Zvuk: otevřít okno</button>
+          <button class="secondary" data-action="test-close">Zvuk: zavřít okno</button>
+          <button class="secondary" data-action="test-fire">Zvuk: požár</button>
           <button class="secondary" data-action="test-email">Test e-mailu</button>
           <button class="secondary" data-action="status-email">Stavový e-mail</button>
           <button class="contrast" data-action="restart">Restart zařízení</button>

@@ -19,7 +19,36 @@ void BeepEngine::playTone(uint16_t freqHz, uint32_t nowMs) {
     active_    = true;
 }
 
+void BeepEngine::playSequence3(uint16_t f0, uint16_t f1, uint16_t f2, uint32_t nowMs) {
+    if (!enabled_ || (active_ && fireMode_)) {
+        return; // disabled, or fire pattern owns the buzzer
+    }
+    steps_[0]  = Step{f0, cfg::beep::kTriadStepMs};
+    steps_[1]  = Step{f1, cfg::beep::kTriadStepMs};
+    steps_[2]  = Step{f2, cfg::beep::kTriadStepMs};
+    stepCount_ = 3;
+    startMs_   = nowMs;
+    totalMs_   = 3U * cfg::beep::kTriadStepMs;
+    repeat_    = false;
+    fireMode_  = false;
+    active_    = true;
+}
+
+void BeepEngine::playWindowOpen(uint32_t nowMs) {
+    playSequence3(cfg::beep::kTriadPrimaHz, cfg::beep::kTriadTertiaHz, cfg::beep::kTriadQuintaHz,
+                  nowMs);
+}
+
+void BeepEngine::playWindowClose(uint32_t nowMs) {
+    playSequence3(cfg::beep::kTriadQuintaHz, cfg::beep::kTriadTertiaHz, cfg::beep::kTriadPrimaHz,
+                  nowMs);
+}
+
 void BeepEngine::playFire(uint32_t nowMs) {
+    playFire(nowMs, cfg::beep::kFireBurstMs);
+}
+
+void BeepEngine::playFire(uint32_t nowMs, uint32_t durationMs) {
     if (!enabled_) {
         return;
     }
@@ -27,7 +56,7 @@ void BeepEngine::playFire(uint32_t nowMs) {
     steps_[1]  = Step{cfg::beep::kFireToneHighHz, cfg::beep::kFireToneStepMs};
     stepCount_ = 2;
     startMs_   = nowMs;
-    totalMs_   = cfg::beep::kFireBurstMs;
+    totalMs_   = durationMs;
     repeat_    = true;
     fireMode_  = true;
     active_    = true;

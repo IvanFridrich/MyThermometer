@@ -99,6 +99,10 @@ EventFlags g_windowFlags = 0;
 
 uint8_t g_bleSeq = 0;
 
+// Two-state window recommendation (advice == kOpen), Core-1-owned. Drives the
+// open/close melody on the flip; boot state "closed" so no melody at startup.
+bool g_windowOpenPrev = false;
+
 httpd_handle_t g_httpsServer{nullptr};
 
 // Static task stacks + TCBs (NFR-04: no heap in steady state; NFR-07).
@@ -538,11 +542,20 @@ void handleApiConfig() {
 
 void handleAction() {
     const String action = g_server.pathArg(0);
-    if (action == "test-beep") {
-        // g_beep is also written by Core 1; guard the playTone call with g_mux.
+    if (action == "test-beep" || action == "test-open" || action == "test-close" ||
+        action == "test-fire") {
+        // g_beep is also written by Core 1; guard the play* call with g_mux.
         const uint32_t now = millis();
         taskENTER_CRITICAL(&g_mux);
-        g_beep.playTone(cfg::beep::kTestToneHz, now);
+        if (action == "test-open") {
+            g_beep.playWindowOpen(now);
+        } else if (action == "test-close") {
+            g_beep.playWindowClose(now);
+        } else if (action == "test-fire") {
+            g_beep.playFire(now, cfg::beep::kFireTestMs); // short burst, not the full minute
+        } else {
+            g_beep.playTone(cfg::beep::kTestToneHz, now);
+        }
         taskEXIT_CRITICAL(&g_mux);
     } else if (action == "test-email" || action == "status-email") {
         if (!g_webConfig.emailEnabled) {
@@ -653,8 +666,6 @@ void measurementCycle(uint32_t nowMs) {
     } else if (edges.sensorRising) {
         g_beep.playTone(cfg::beep::kSensorToneHz, nowMs);
         logLine(cfg::log::Level::kError, "ALARM", "sensor fault");
-    } else if (edges.diffRising) {
-        g_beep.playTone(cfg::beep::kDiffToneHz, nowMs);
     }
     if (g_alarm.isFire() && !g_beep.isActive()) {
         g_beep.playFire(nowMs); // keep sounding while the fire condition holds (FR-08)
@@ -663,6 +674,20 @@ void measurementCycle(uint32_t nowMs) {
     const auto advice = window::advise(innerAvgAlarm, outerAvgAlarm,
                                        static_cast<cfg::window_advisor::Goal>(g_config.windowGoal),
                                        g_config.diffThresholdC100);
+
+    // Window-advice melody on the two-state flip (same boundary as the display
+    // icon): ascending triad when it becomes "open", descending when it goes
+    // back to "closed". Replaces the old single diff-exceeded beep. Blocked by
+    // an active fire pattern (fire owns the buzzer).
+    const bool windowOpen = advice == window::Advice::kOpen;
+    if (windowOpen != g_windowOpenPrev) {
+        g_windowOpenPrev = windowOpen;
+        if (windowOpen) {
+            g_beep.playWindowOpen(nowMs);
+        } else {
+            g_beep.playWindowClose(nowMs);
+        }
+    }
 
     json_api::CurrentStatus s;
     s.innerC100     = innerAvg;

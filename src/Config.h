@@ -138,18 +138,30 @@ constexpr Goal kDefaultGoal = Goal::kCoolRoom;
 //    perfect-fourth (4:3) interval for ~1 minute.
 // ----------------------------------------------------------------------------
 namespace beep {
-constexpr uint16_t kDiffToneHz     = 1200; // difference-exceeded beep
 constexpr uint16_t kSensorToneHz   = 500;  // sensor-open / onewire err
 constexpr uint16_t kWeirdToneHz    = 700;  // weird value
 constexpr uint16_t kBootToneHz     = 880;  // boot chirp
 constexpr uint16_t kTestToneHz     = 1000; // web "test beeper"
 constexpr uint16_t kBeepDurationMs = 120;  // one-shot duration
 
-// Fire: alternate two tones a perfect fourth apart (ratio 4:3).
-constexpr uint16_t kFireToneLowHz  = 784;           // G5
-constexpr uint16_t kFireToneHighHz = 1046;          // ~ G5 * 4/3 (C6), a fourth
+// Window-advice melody: high register on purpose — a square wave's odd
+// harmonics (3f, 5f) land above the piezo's response AND above the ear's
+// sensitive band, so the tones ring clean instead of buzzy. Base D8 is above
+// the piezo resonance => intentionally quieter (desk device, must not blare);
+// chosen by ear over the louder G7. "Open" = prima-tercie-kvinta ascending;
+// "closed" = descending.
+constexpr uint16_t kTriadPrimaHz  = 4699; // D8 (prima, chosen by ear)
+constexpr uint16_t kTriadTertiaHz = 5920; // F#8 (major third)
+constexpr uint16_t kTriadQuintaHz = 7040; // A8 (perfect fifth)
+constexpr uint16_t kTriadStepMs   = 180;  // per-tone duration
+
+// Fire: alternate prima/kvarta — the "hoří, hoří" two-tone (perfect fourth,
+// ratio 4:3) from the same D8 base.
+constexpr uint16_t kFireToneLowHz  = 4699;          // D8 (prima)
+constexpr uint16_t kFireToneHighHz = 6272;          // G8 (kvarta, 4:3)
 constexpr uint16_t kFireToneStepMs = 300;           // per-tone duration
 constexpr uint32_t kFireBurstMs    = 60UL * 1000UL; // pattern length ~1 min
+constexpr uint32_t kFireTestMs     = 3000;          // short burst for the web test action
 } // namespace beep
 
 // ----------------------------------------------------------------------------

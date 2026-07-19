@@ -85,7 +85,7 @@ constexpr int32_t kLabelX  = 66;  // temp label column
 constexpr int32_t kRow1Y   = 14;  // inner temp (Montserrat 48)
 constexpr int32_t kRow2Y48 = 104; // outer temp / FIRE! (Montserrat 48)
 constexpr int32_t kRow2Y24 = 116; // SENSOR / WiFi DOWN (Montserrat 24)
-constexpr int32_t kWindowX = 220; // window icon (84x108)
+constexpr int32_t kWindowX = 234; // window icon (84x108); flush right (2px margin) for a gap from the temp
 constexpr int32_t kWindowY = 31;
 
 // Colors.

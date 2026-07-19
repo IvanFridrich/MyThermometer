@@ -162,6 +162,12 @@ constexpr uint16_t kFireToneHighHz = 6272;          // G8 (kvarta, 4:3)
 constexpr uint16_t kFireToneStepMs = 300;           // per-tone duration
 constexpr uint32_t kFireBurstMs    = 60UL * 1000UL; // pattern length ~1 min
 constexpr uint32_t kFireTestMs     = 3000;          // short burst for the web test action
+
+// Quiet hours: window-advice melodies are suppressed during this local-time
+// window (minutes-of-day, 0..1439). Default 22:00-09:00 (wraps midnight).
+// from == to disables it. Fire alarm and web sound tests always play.
+constexpr uint16_t kQuietFromMin = 22U * 60U; // 1320 = 22:00
+constexpr uint16_t kQuietToMin   = 9U * 60U;  // 540  = 09:00
 } // namespace beep
 
 // ----------------------------------------------------------------------------
@@ -205,15 +211,21 @@ constexpr uint32_t kNotifyDelayMs =
 namespace net {
 constexpr char     kMdnsHostname[] = "teplomer"; // -> http://teplomer.local
 constexpr uint16_t kHttpPort       = 80;         // plain HTTP (LAN-trusted)
-constexpr uint32_t kReconnectMinMs = 1000;       // backoff start
-constexpr uint32_t kReconnectMaxMs = 30000;      // backoff cap
-constexpr uint32_t kWifiCheckMs    = 2000;       // link supervision period
-constexpr uint8_t  kMaxHttpRoutes  = 16;         // max registered route handlers (HttpServer fake)
-constexpr int8_t   kRssiInvalid    = 127;        // out-of-band RSSI sentinel = "not connected"
+
+// NTP time sync (Czech local time; POSIX TZ carries the CET/CEST DST rules so
+// the RTC needs no manual summer/winter switch).
+constexpr char     kNtpServer[]    = "pool.ntp.org";
+constexpr char     kTimezone[]     = "CET-1CEST,M3.5.0,M10.5.0/3";
+constexpr uint32_t kMinValidEpoch  = 1600000000UL; // ~2020-09; below => clock not yet synced
+constexpr uint32_t kReconnectMinMs = 1000;         // backoff start
+constexpr uint32_t kReconnectMaxMs = 30000;        // backoff cap
+constexpr uint32_t kWifiCheckMs    = 2000;         // link supervision period
+constexpr uint8_t  kMaxHttpRoutes  = 16;  // max registered route handlers (HttpServer fake)
+constexpr int8_t   kRssiInvalid    = 127; // out-of-band RSSI sentinel = "not connected"
 // Static scratch buffers for JSON responses (no dynamic allocation). History is
 // sized for kHistoryDepth records of the widest form {"i":-32767,"o":-32767,"f":65535}.
 // Worst case 1008 records: 41 (header) + 33 + 1007×34 (records) + 2 (tail) + 1 (NUL) = 34315 B.
-constexpr uint16_t kJsonCurrentBufSize = 640;
+constexpr uint16_t kJsonCurrentBufSize = 768; // headroom for quiet-hours + tod_min fields
 constexpr uint32_t kJsonHistoryBufSize = 36000;
 constexpr uint16_t kOtaHttpsPort       = 8443; // OTA-only HTTPS server (esp_https_server)
 constexpr size_t   kOtaRecvBufSize     = 4096; // chunk buffer for firmware receive

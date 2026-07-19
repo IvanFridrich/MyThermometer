@@ -37,6 +37,9 @@ json_api::CurrentStatus sampleStatus() {
     s.diffThrC100   = 200;
     s.diffHystC100  = 50;
     s.contrast      = 128;
+    s.quietFromMin  = 1320; // 22:00
+    s.quietToMin    = 540;  // 09:00
+    s.todMin        = 755;  // 12:35
     return s;
 }
 } // namespace
@@ -50,7 +53,8 @@ TEST_CASE("/api/current serializes exactly and returns the written length") {
         "\"uptime_s\":3600,\"free_heap\":150000,\"min_free_heap\":140000,\"rssi\":-67,"
         "\"inner_rom\":\"0x28FF001122334455\",\"outer_rom\":\"0x28AA00AABBCCDDEE\","
         "\"beeper\":true,\"email\":true,\"fire_thr_c100\":4500,\"fire_hyst_c100\":200,"
-        "\"diff_thr_c100\":200,\"diff_hyst_c100\":50,\"contrast\":128}";
+        "\"diff_thr_c100\":200,\"diff_hyst_c100\":50,\"contrast\":128,"
+        "\"quiet_from_min\":1320,\"quiet_to_min\":540,\"tod_min\":755}";
     CHECK(std::string(buf) == expected);
     CHECK(n == expected.size());
     CHECK(n == std::strlen(buf));
@@ -78,6 +82,14 @@ TEST_CASE("/api/current window advice maps to the expected strings") {
     s.windowAdvice = window::Advice::kNoChange;
     json_api::serializeCurrent(s, buf, sizeof(buf));
     CHECK(std::string(buf).find("\"window\":\"nochange\"") != std::string::npos);
+}
+
+TEST_CASE("/api/current emits null for tod_min when the clock is unsynced") {
+    json_api::CurrentStatus s = sampleStatus();
+    s.todMin                  = -1;
+    char buf[cfg::net::kJsonCurrentBufSize];
+    json_api::serializeCurrent(s, buf, sizeof(buf));
+    CHECK(std::string(buf).find("\"tod_min\":null") != std::string::npos);
 }
 
 TEST_CASE("/api/current returns 0 when the buffer is too small") {

@@ -75,6 +75,16 @@ size_t serializeCurrent(const CurrentStatus& s, char* buf, size_t cap) {
         outerRom[0] = '\0';
     }
 
+    std::array<char, kNumBuf> tod{};
+    if (s.todMin < 0) {
+        std::snprintf(tod.data(), tod.size(), "null");
+    } else {
+        const int tn = std::snprintf(tod.data(), tod.size(), "%d", static_cast<int>(s.todMin));
+        if (tn < 0 || static_cast<size_t>(tn) >= tod.size()) {
+            tod[0] = '\0';
+        }
+    }
+
     const int n = std::snprintf(
         buf, cap,
         R"({"inner_c100":%s,"outer_c100":%s,"diff_c100":%s,"window":"%s",)"
@@ -82,7 +92,8 @@ size_t serializeCurrent(const CurrentStatus& s, char* buf, size_t cap) {
         R"("uptime_s":%lu,"free_heap":%lu,"min_free_heap":%lu,"rssi":%d,)"
         R"("inner_rom":"%s","outer_rom":"%s","beeper":%s,"email":%s,)"
         R"("fire_thr_c100":%d,"fire_hyst_c100":%d,"diff_thr_c100":%d,)"
-        R"("diff_hyst_c100":%d,"contrast":%u})",
+        R"("diff_hyst_c100":%d,"contrast":%u,)"
+        R"("quiet_from_min":%d,"quiet_to_min":%d,"tod_min":%s})",
         inner.data(), outer.data(), diff.data(), adviceStr(s.windowAdvice),
         static_cast<unsigned>(s.windowGoal), boolStr(s.fire), boolStr(s.sensorFault),
         boolStr(s.diffAlarm), static_cast<unsigned long>(s.uptimeS),
@@ -90,7 +101,8 @@ size_t serializeCurrent(const CurrentStatus& s, char* buf, size_t cap) {
         static_cast<int>(s.rssi), innerRom.data(), outerRom.data(), boolStr(s.beeperEnabled),
         boolStr(s.emailEnabled), static_cast<int>(s.fireThrC100), static_cast<int>(s.fireHystC100),
         static_cast<int>(s.diffThrC100), static_cast<int>(s.diffHystC100),
-        static_cast<unsigned>(s.contrast));
+        static_cast<unsigned>(s.contrast), static_cast<int>(s.quietFromMin),
+        static_cast<int>(s.quietToMin), tod.data());
 
     if (n < 0 || static_cast<size_t>(n) >= cap) {
         return 0;

@@ -13,6 +13,8 @@ struct ConfigModel {
     uint8_t lcdContrastPwm{};
     bool    emailEnabled{};
     uint8_t windowGoal{};
+    int16_t quietFromMin{}; // window-advice quiet hours, minutes-of-day (0..1439)
+    int16_t quietToMin{};
 
     static ConfigModel defaults();
     bool               validate() const;

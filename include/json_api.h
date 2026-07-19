@@ -35,6 +35,9 @@ struct CurrentStatus {
     int16_t        diffThrC100{0};
     int16_t        diffHystC100{0};
     uint8_t        contrast{0};
+    int16_t        quietFromMin{0}; // window-advice quiet hours, minutes-of-day
+    int16_t        quietToMin{0};
+    int16_t        todMin{-1}; // local time-of-day in minutes; -1 = clock not synced
 };
 
 // Build GET /api/current into buf[cap]. Returns bytes written (excluding the NUL)

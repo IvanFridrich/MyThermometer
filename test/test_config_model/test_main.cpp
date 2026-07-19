@@ -26,6 +26,8 @@ TEST_CASE("defaults match the NVS contract (§6.4)") {
     CHECK(m.lcdContrastPwm == cfg::ledc::kBacklightDefault);
     CHECK(m.emailEnabled == true);
     CHECK(m.windowGoal == static_cast<uint8_t>(cfg::window_advisor::Goal::kCoolRoom));
+    CHECK(m.quietFromMin == 1320); // 22:00
+    CHECK(m.quietToMin == 540);    // 09:00
 }
 
 // ---------------------------------------------------------------------------
@@ -106,5 +108,31 @@ TEST_CASE("an out-of-range window goal is rejected") {
     m.windowGoal  = 2;
     CHECK_FALSE(m.validate());
     m.windowGoal = 255;
+    CHECK_FALSE(m.validate());
+}
+
+// ---------------------------------------------------------------------------
+// Quiet-hours validation (minutes-of-day, 0..1439)
+// ---------------------------------------------------------------------------
+TEST_CASE("quiet-hours boundaries 0 and 1439 are accepted") {
+    ConfigModel m  = ConfigModel::defaults();
+    m.quietFromMin = 0;
+    m.quietToMin   = 1439;
+    CHECK(m.validate());
+}
+
+TEST_CASE("equal quiet-hours (disabled) are accepted") {
+    ConfigModel m  = ConfigModel::defaults();
+    m.quietFromMin = 600;
+    m.quietToMin   = 600;
+    CHECK(m.validate());
+}
+
+TEST_CASE("out-of-range quiet-hours are rejected") {
+    ConfigModel m  = ConfigModel::defaults();
+    m.quietFromMin = 1440;
+    CHECK_FALSE(m.validate());
+    m            = ConfigModel::defaults();
+    m.quietToMin = -1;
     CHECK_FALSE(m.validate());
 }

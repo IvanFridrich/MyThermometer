@@ -17,6 +17,8 @@ ConfigModel ConfigModel::defaults() {
     m.lcdContrastPwm = cfg::ledc::kBacklightDefault;
     m.emailEnabled   = true;
     m.windowGoal     = static_cast<uint8_t>(cfg::window_advisor::kDefaultGoal);
+    m.quietFromMin   = static_cast<int16_t>(cfg::beep::kQuietFromMin);
+    m.quietToMin     = static_cast<int16_t>(cfg::beep::kQuietToMin);
     return m;
 }
 
@@ -34,6 +36,9 @@ bool ConfigModel::validate() const {
         return false;
     }
     if (windowGoal > 1U) {
+        return false;
+    }
+    if (quietFromMin < 0 || quietFromMin > 1439 || quietToMin < 0 || quietToMin > 1439) {
         return false;
     }
     return true;

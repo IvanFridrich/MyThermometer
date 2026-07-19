@@ -56,6 +56,7 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
       <article>
         <header>Diagnostika</header>
         <dl class="diag">
+          <dt>Čas zařízení</dt><dd id="tod">–</dd>
           <dt>Doba běhu</dt><dd id="uptime">–</dd>
           <dt>WiFi signál (RSSI)</dt><dd id="rssi">–</dd>
           <dt>Volná paměť</dt><dd id="heap">–</dd>
@@ -85,6 +86,14 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
             <label>Hystereze požáru (°C)<input type="number" name="fire_hyst" min="0" step="0.1" /></label>
           </div>
           <label>Jas displeje (0–255)<input type="range" name="contrast" min="0" max="255" /></label>
+          <fieldset>
+            <legend>Nepípat (tiché hodiny)</legend>
+            <div class="grid">
+              <label>Od<input type="time" name="quiet_from" /></label>
+              <label>Do<input type="time" name="quiet_to" /></label>
+            </div>
+            <small class="muted">Melodie okna se v tomto čase nepřehrávají. Stejný čas od/do = vypnuto. Požární alarm zní vždy.</small>
+          </fieldset>
           <button type="submit">Uložit konfiguraci</button>
         </form>
       </article>
@@ -135,6 +144,16 @@ function fmtUptime(sec) {
          String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
 }
 
+// minutes-of-day (0..1439) <-> "HH:MM"
+function minToHHMM(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+function hhmmToMin(str) {
+  const [h, m] = (str || "0:0").split(":").map((n) => parseInt(n, 10) || 0);
+  return h * 60 + m;
+}
+
 const ADVICE = {
   open: ["OTEVŘÍT OKNO", "open"],
   close: ["ZAVŘÍT OKNO", "close"],
@@ -159,6 +178,7 @@ function renderCurrent(s) {
   a.textContent = alarms.join("  •  ");
   a.className = alarms.length ? "alarm" : "";
 
+  $("tod").textContent = (s.tod_min == null) ? "— (nesynchronizováno)" : minToHHMM(s.tod_min);
   $("uptime").textContent = fmtUptime(s.uptime_s);
   $("rssi").textContent = s.rssi === 127 ? "—" : s.rssi + " dBm";
   $("heap").textContent = (s.free_heap / 1024).toFixed(1) + " kB";
@@ -177,6 +197,8 @@ function renderCurrent(s) {
     f.fire_thr.value = (s.fire_thr_c100 / 100).toFixed(1);
     f.fire_hyst.value = (s.fire_hyst_c100 / 100).toFixed(1);
     f.contrast.value = s.contrast;
+    f.quiet_from.value = minToHHMM(s.quiet_from_min);
+    f.quiet_to.value = minToHHMM(s.quiet_to_min);
     f.dataset.loaded = "1";
   }
 }
@@ -278,6 +300,8 @@ function wireForms() {
       fire_thr_c100: Math.round(parseFloat(f.fire_thr.value) * 100),
       fire_hyst_c100: Math.round(parseFloat(f.fire_hyst.value) * 100),
       contrast: f.contrast.value,
+      quiet_from_min: hhmmToMin(f.quiet_from.value),
+      quiet_to_min: hhmmToMin(f.quiet_to.value),
     };
     try {
       await postForm("/api/config", params);

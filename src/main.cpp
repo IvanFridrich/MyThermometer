@@ -16,6 +16,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <cstring> // memcpy in OtaDataCb::onWrite
+#include <ctime>   // time()/localtime_r for NTP time-of-day
 #include <esp_task_wdt.h>
 #include <uri/UriBraces.h>
 
@@ -30,6 +31,7 @@
 #include "history_buffer.h"
 #include "json_api.h"
 #include "moving_average.h"
+#include "quiet_hours.h"
 #include "types.h"
 #include "window_advice.h"
 
@@ -136,20 +138,34 @@ bool g_mailFirePending   = false;
 bool g_mailSensorPending = false;
 
 // NVS keys (§6.4).
-constexpr char kKeyBeeper[]   = "beeper";
-constexpr char kKeyDiffThr[]  = "diff_thr";
-constexpr char kKeyDiffHyst[] = "diff_hyst";
-constexpr char kKeyFireThr[]  = "fire_thr";
-constexpr char kKeyFireHyst[] = "fire_hyst";
-constexpr char kKeyContrast[] = "contrast";
-constexpr char kKeyEmail[]    = "email";
-constexpr char kKeyGoal[]     = "win_goal";
+constexpr char kKeyBeeper[]    = "beeper";
+constexpr char kKeyDiffThr[]   = "diff_thr";
+constexpr char kKeyDiffHyst[]  = "diff_hyst";
+constexpr char kKeyFireThr[]   = "fire_thr";
+constexpr char kKeyFireHyst[]  = "fire_hyst";
+constexpr char kKeyContrast[]  = "contrast";
+constexpr char kKeyEmail[]     = "email";
+constexpr char kKeyGoal[]      = "win_goal";
+constexpr char kKeyQuietFrom[] = "quiet_from";
+constexpr char kKeyQuietTo[]   = "quiet_to";
 
 void logLine(cfg::log::Level level, const char* module, const char* msg) {
     const uint32_t up = millis();
     g_log.append(level, module, msg, up);
     Serial.printf("[+%lu][%d][%s] %s\n", static_cast<unsigned long>(up), static_cast<int>(level),
                   module, msg);
+}
+
+// Local time-of-day in minutes (0..1439), or -1 if NTP has not synced yet.
+// configTzTime() applies the Czech TZ, so localtime_r already accounts for DST.
+int16_t localTimeOfDayMin() {
+    const time_t now = time(nullptr);
+    if (static_cast<uint32_t>(now) < cfg::net::kMinValidEpoch) {
+        return -1; // clock not set yet
+    }
+    tm tmLocal{};
+    localtime_r(&now, &tmLocal);
+    return static_cast<int16_t>(tmLocal.tm_hour * 60 + tmLocal.tm_min);
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +469,8 @@ void loadConfig() {
     g_config.lcdContrastPwm     = g_nvs.getUint8(kKeyContrast, g_config.lcdContrastPwm).value();
     g_config.emailEnabled       = g_nvs.getBool(kKeyEmail, g_config.emailEnabled).value();
     g_config.windowGoal         = g_nvs.getUint8(kKeyGoal, g_config.windowGoal).value();
+    g_config.quietFromMin       = g_nvs.getInt16(kKeyQuietFrom, g_config.quietFromMin).value();
+    g_config.quietToMin         = g_nvs.getInt16(kKeyQuietTo, g_config.quietToMin).value();
     if (!g_config.validate()) {
         g_config = ConfigModel::defaults();
         logLine(cfg::log::Level::kWarn, "NVS", "stored config invalid; reset to defaults");
@@ -470,6 +488,8 @@ void saveConfig(const ConfigModel& c) {
     g_nvs.putUint8(kKeyContrast, c.lcdContrastPwm);
     g_nvs.putBool(kKeyEmail, c.emailEnabled);
     g_nvs.putUint8(kKeyGoal, c.windowGoal);
+    g_nvs.putInt16(kKeyQuietFrom, c.quietFromMin);
+    g_nvs.putInt16(kKeyQuietTo, c.quietToMin);
 }
 
 // Accumulate window event flags from either core (guarded).
@@ -549,6 +569,9 @@ void handleApiConfig() {
     next.fireHysteresisC100 =
         static_cast<int16_t>(argClamped("fire_hyst_c100", next.fireHysteresisC100, 0, 30000));
     next.lcdContrastPwm = static_cast<uint8_t>(argClamped("contrast", next.lcdContrastPwm, 0, 255));
+    next.quietFromMin =
+        static_cast<int16_t>(argClamped("quiet_from_min", next.quietFromMin, 0, 1439));
+    next.quietToMin = static_cast<int16_t>(argClamped("quiet_to_min", next.quietToMin, 0, 1439));
     if (!next.validate()) {
         g_server.send(400, "text/plain", "invalid config");
         return;
@@ -697,17 +720,27 @@ void measurementCycle(uint32_t nowMs) {
                                        static_cast<cfg::window_advisor::Goal>(g_config.windowGoal),
                                        g_config.diffThresholdC100);
 
+    // Local time-of-day in minutes, or -1 if NTP has not synced yet.
+    const int16_t todMin = localTimeOfDayMin();
+
     // Window-advice melody on the two-state flip (same boundary as the display
     // icon): ascending triad when it becomes "open", descending when it goes
-    // back to "closed". Replaces the old single diff-exceeded beep. Blocked by
-    // an active fire pattern (fire owns the buzzer).
+    // back to "closed". Blocked by an active fire pattern (fire owns the buzzer)
+    // and, during quiet hours, suppressed entirely. The flip state is still
+    // tracked so a change during the quiet window does not replay when it ends.
     const bool windowOpen = advice == window::Advice::kOpen;
     if (windowOpen != g_windowOpenPrev) {
         g_windowOpenPrev = windowOpen;
-        if (windowOpen) {
-            g_beep.playWindowOpen(nowMs);
-        } else {
-            g_beep.playWindowClose(nowMs);
+        const bool quiet =
+            todMin >= 0 && quiet::inQuietWindow(static_cast<uint16_t>(todMin),
+                                                static_cast<uint16_t>(g_config.quietFromMin),
+                                                static_cast<uint16_t>(g_config.quietToMin));
+        if (!quiet) {
+            if (windowOpen) {
+                g_beep.playWindowOpen(nowMs);
+            } else {
+                g_beep.playWindowClose(nowMs);
+            }
         }
     }
 
@@ -730,6 +763,9 @@ void measurementCycle(uint32_t nowMs) {
     s.diffThrC100   = g_config.diffThresholdC100;
     s.diffHystC100  = g_config.diffHysteresisC100;
     s.contrast      = g_config.lcdContrastPwm;
+    s.quietFromMin  = g_config.quietFromMin;
+    s.quietToMin    = g_config.quietToMin;
+    s.todMin        = todMin;
     // ROM IDs are read once at boot (see setup()); carry them forward.
     taskENTER_CRITICAL(&g_mux);
     s.innerRom = g_snapshot.innerRom;
@@ -1011,6 +1047,10 @@ void mailTask(void*) {
                 char ip[16];
                 g_wifi.getIp(ip, sizeof(ip));
                 logLine(cfg::log::Level::kInfo, "WIFI", ip);
+
+                // Start NTP with the Czech TZ (POSIX rule carries DST). SNTP keeps
+                // resyncing on its own; re-calling on reconnect is harmless.
+                configTzTime(cfg::net::kTimezone, cfg::net::kNtpServer);
 
                 if (g_httpsServer == nullptr) {
                     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();

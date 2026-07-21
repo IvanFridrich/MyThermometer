@@ -85,7 +85,7 @@ reálné timestampy dopočítává webová stránka v prohlížeči z času proh
 - **FR-06** Jeden záznam = obě teploty (10min průměr v okamžiku vzorku) a OR všech příznaků událostí v daném 10min okně. Timestamp se nepersistuje (§6.1). Struktura viz §6.1.
 
 **Alarmy**
-- **FR-07** Rozdíl: když `abs(avg_in − avg_out) ≥ diff_threshold` **a směr odpovídá `window_goal`** (CoolRoom: venku chladněji než uvnitř; WarmRoom: venku tepleji) → krátké dvojité pípnutí (jednorázové při náběžné hraně) + flag `DIFF_EXCEEDED`; clear s hysterezí. Při rozdílu v opačném směru se alarm nespustí (otevření okna by k cíli nepomohlo).
+- **FR-07** (rev. 2026-06) Doporučení okna: stavový automat `window::Advisor` se dvěma OR pravidly. (a) **diff**: otevřít když `avg_in − avg_out ≥ diff_threshold`; zavřít až když `avg_in − avg_out ≤ 0` (celé pásmo N…0 je hystereze — žádné kmitání). (b) **vent**: otevřít kdykoli `avg_out ≤ 20,0 °C` (včetně), **bez ohledu na vnitřní teplotu**; zruší se nad 20,5 °C (pevná hystereze proti kolísání kolem prahu). Flag `DIFF_EXCEEDED` zrcadlí stav diff pravidla. Při překlopení kombinovaného stavu hraje melodie otevřít/zavřít (mimo tiché hodiny). `window_goal` (CoolRoom/WarmRoom) a `diff_hysteresis` byly odstraněny.
 - **FR-08** Požár: když okamžité `inner ≥ fire_threshold` (default 45 °C) → opakovaný alarm dokud trvá; clear s hysterezí; flag `FIRE`; spustí e-mail.
 - **FR-09** Porucha čidla → distinktivní zvukový vzor + flag + e-mail.
 - **FR-10** Detekce požáru jen u `inner`.
@@ -236,19 +236,19 @@ struct __attribute__((packed)) HistoryRecord {
 WIFI_UP, EMAIL_SENT, EMAIL_FAILED, INNER_INVALID, OUTER_INVALID,
 BROWNOUT_RECOVER, CONFIG_CHANGED.`
 
-Poznámka k DIFF_EXCEEDED: jeden bit, bez směru zakódovaného v příznaku. Příznak
-se nastaví, když `abs(avg_in − avg_out) ≥ diff_threshold` **a směr odpovídá
-`window_goal`** (CoolRoom: venku chladněji; WarmRoom: venku tepleji) — tedy shodně
-s rozdílovým alarmem (FR-07). Samotný směr (which sensor is hotter) se v příznaku
-nekóduje; je derivovatelný z hodnot teplot (avg_inner vs avg_outer) a předává se
-v JSON API jako samostatné pole. BLE payload §6.2 je nezměněn (receiver si směr
-dopočítá z T_inner/T_outer v paketu).
+Poznámka k DIFF_EXCEEDED: jeden bit, bez směru zakódovaného v příznaku. Od
+rev. FR-07 zrcadlí stav **diff pravidla** `window::Advisor` (nastaven od
+`avg_in − avg_out ≥ diff_threshold` do vyrovnání ≤ 0). Směr se v příznaku
+nekóduje; je derivovatelný z hodnot teplot (avg_inner vs avg_outer). BLE
+payload §6.2 je nezměněn (receiver si směr dopočítá z T_inner/T_outer v paketu).
 
 ### 6.4 Konfigurace (NVS)
 `beeper_enabled(bool=true), diff_threshold_c100(int16=200),
-diff_hysteresis_c100(int16=50), fire_threshold_c100(int16=4500),
-fire_hysteresis_c100(int16=200), lcd_contrast_pwm(uint8=128),
-email_enabled(bool=true), window_goal(uint8=0 → CoolRoom).`
+fire_threshold_c100(int16=4500), fire_hysteresis_c100(int16=200),
+lcd_contrast_pwm(uint8=128), email_enabled(bool=true),
+quiet_from(int16=1320), quiet_to(int16=540).`
+Klíče `diff_hyst` a `win_goal` byly vyřazeny (rev. FR-07); staré hodnoty ve
+flash se ignorují. Vent práh 20,0/20,5 °C je fixní konstanta (`cfg::vent`).
 Perioda měření (60 s) a krok historie (600 s) jsou fixní konstanty (mimo NVS).
 
 ---

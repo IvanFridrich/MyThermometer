@@ -306,15 +306,12 @@ TEST_CASE("AlarmState fire rising edge") {
     CHECK(alm.isFire());
 }
 
-TEST_CASE("AlarmState diff rising edge") {
-    ConfigModel cfg = ConfigModel::defaults();
-    AlarmState  alm(cfg);
-    // CoolRoom goal (default): alarm fires when outer is cooler than inner by > threshold.
-    // diff = outerAvg - innerAvg = 2000 - 2300 = -300 centi-°C  (outer 3 °C cooler, > 2 °C thr)
-    MeasurementSnapshot snap{2000, 2300, 2000, 0};
-    AlarmEdges          edges = alm.update(snap);
-    CHECK(edges.diffRising);
-    CHECK(alm.isDiff());
+TEST_CASE("window Advisor diff rule opens") {
+    // Diff state moved from AlarmState into window::Advisor (FR-07 rev.):
+    // inner 3 C warmer than outer (>= 2 C threshold) -> advise open.
+    window::Advisor adv;
+    CHECK(adv.update(2300, 2000, 200) == window::Advice::kOpen);
+    CHECK(adv.diffActive());
 }
 
 // ---------------------------------------------------------------------------

@@ -122,15 +122,19 @@ constexpr uint16_t kConfigChanged   = 1U << 13; // config written via web/NVS th
 } // namespace flag
 
 // ----------------------------------------------------------------------------
-// 6. WINDOW RECOMMENDATION (the actual use case of the difference alarm)
-//    Goal selects what "good" means. Persisted in NVS, settable from web.
+// 6. WINDOW RECOMMENDATION (stateful, two rules OR-ed; see window_advice.h)
+//    Rule 1 (diff): open when inside is warmer than outside by >= diff
+//    threshold (web-configurable N); back to closed once the temps equalize
+//    (diff <= 0). The whole N..0 band is the hysteresis.
+//    Rule 2 (vent): open whenever the outdoor average is <= kVentOpenC100
+//    ("ventilation is effective now"), regardless of the indoor temperature;
+//    clears above kVentCloseC100 so drift around 20.0 C cannot retrigger
+//    the melody.
 // ----------------------------------------------------------------------------
-namespace window_advisor {
-enum class Goal : uint8_t { kCoolRoom = 0, kWarmRoom = 1 };
-constexpr Goal kDefaultGoal = Goal::kCoolRoom;
-// With kCoolRoom: outside cooler than inside by > kDiffThresholdC => "OPEN".
-// With kWarmRoom: outside warmer than inside by > kDiffThresholdC => "OPEN".
-} // namespace window_advisor
+namespace vent {
+constexpr int16_t kVentOpenC100  = 2000; // outer avg <= 20.00 C -> advise open
+constexpr int16_t kVentCloseC100 = 2050; // rule clears above 20.50 C (hysteresis)
+} // namespace vent
 
 // ----------------------------------------------------------------------------
 // 7. BEEPER / TONES (passive buzzer, multi-frequency, non-blocking patterns)

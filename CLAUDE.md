@@ -59,9 +59,9 @@ tools/ble_monitor/  Python bleak skript
 |--------|-----------|
 | LCD D7 | GPIO **21**; RS=42, EN=41, D4=5, D5=18, D6=**38**, D7=21 (GPIO 19 = USB D− na WROOM — zakázán) |
 | HistoryRecord | **6 B/record** (bez `t_rel_s`); timestampy z pozice: `now − (count−1−i) × 600 s`; `__attribute__((packed))` |
-| Diff alarm flags | Jeden bit **DIFF_EXCEEDED**; směr se nepersistuje jako flag — JSON API ho vrátí jako pole |
+| Diff alarm flags | Jeden bit **DIFF_EXCEEDED**; zrcadlí diff pravidlo `window::Advisor` (FR-07 rev.) |
 | BLE §6.2 | Beze změny; receiver si směr dopočítá z T_inner/T_outer |
-| window_goal | Persistuje do NVS (`uint8`, 0=CoolRoom, 1=WarmRoom); konfigurovatelné z webu |
+| Window advice | Stavový `window::Advisor`: diff pravidlo (otevřít při in−out ≥ N, zavřít při ≤ 0) OR vent pravidlo (venku ≤ 20,0 °C vč. → otevřít, zrušit nad 20,5 °C, bez ohledu na vnitřek). `window_goal` a `diff_hyst` odstraněny (NVS klíče vyřazeny) |
 | HTTP server | Arduino **WebServer.h** (ne esp_http_server) |
 | WDT pattern | Každý task si sám feeduje svůj WDT handle |
 | Native env | Clang (LLVM 21.1.0, Windows) přes CC/CXX; ASan+UBSan; llvm-cov coverage |

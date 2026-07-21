@@ -21,15 +21,7 @@ const char* boolStr(bool value) {
 }
 
 const char* adviceStr(window::Advice advice) {
-    switch (advice) {
-    case window::Advice::kOpen:
-        return "open";
-    case window::Advice::kClose:
-        return "close";
-    case window::Advice::kNoChange:
-        break;
-    }
-    return "nochange";
+    return (advice == window::Advice::kOpen) ? "open" : "close";
 }
 
 // Format a temperature as a decimal integer, or "null" when invalid.
@@ -88,21 +80,19 @@ size_t serializeCurrent(const CurrentStatus& s, char* buf, size_t cap) {
     const int n = std::snprintf(
         buf, cap,
         R"({"inner_c100":%s,"outer_c100":%s,"diff_c100":%s,"window":"%s",)"
-        R"("window_goal":%u,"fire":%s,"sensor_fault":%s,"diff_alarm":%s,)"
+        R"("fire":%s,"sensor_fault":%s,"diff_alarm":%s,)"
         R"("uptime_s":%lu,"free_heap":%lu,"min_free_heap":%lu,"rssi":%d,)"
         R"("inner_rom":"%s","outer_rom":"%s","beeper":%s,"email":%s,)"
         R"("fire_thr_c100":%d,"fire_hyst_c100":%d,"diff_thr_c100":%d,)"
-        R"("diff_hyst_c100":%d,"contrast":%u,)"
+        R"("contrast":%u,)"
         R"("quiet_from_min":%d,"quiet_to_min":%d,"tod_min":%s})",
-        inner.data(), outer.data(), diff.data(), adviceStr(s.windowAdvice),
-        static_cast<unsigned>(s.windowGoal), boolStr(s.fire), boolStr(s.sensorFault),
-        boolStr(s.diffAlarm), static_cast<unsigned long>(s.uptimeS),
+        inner.data(), outer.data(), diff.data(), adviceStr(s.windowAdvice), boolStr(s.fire),
+        boolStr(s.sensorFault), boolStr(s.diffAlarm), static_cast<unsigned long>(s.uptimeS),
         static_cast<unsigned long>(s.freeHeap), static_cast<unsigned long>(s.minFreeHeap),
         static_cast<int>(s.rssi), innerRom.data(), outerRom.data(), boolStr(s.beeperEnabled),
         boolStr(s.emailEnabled), static_cast<int>(s.fireThrC100), static_cast<int>(s.fireHystC100),
-        static_cast<int>(s.diffThrC100), static_cast<int>(s.diffHystC100),
-        static_cast<unsigned>(s.contrast), static_cast<int>(s.quietFromMin),
-        static_cast<int>(s.quietToMin), tod.data());
+        static_cast<int>(s.diffThrC100), static_cast<unsigned>(s.contrast),
+        static_cast<int>(s.quietFromMin), static_cast<int>(s.quietToMin), tod.data());
 
     if (n < 0 || static_cast<size_t>(n) >= cap) {
         return 0;

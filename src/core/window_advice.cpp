@@ -7,25 +7,38 @@
 
 namespace window {
 
-Advice advise(Temperature innerAvg, Temperature outerAvg, cfg::window_advisor::Goal goal,
-              int16_t diffThresholdC100) {
+Advice Advisor::update(Temperature innerAvg, Temperature outerAvg, int16_t diffThresholdC100) {
+    // --- diff rule: needs both averages ------------------------------------
     if (innerAvg == kTempInvalid || outerAvg == kTempInvalid) {
-        return Advice::kNoChange;
-    }
-    // diff > 0 => outside warmer than inside; diff < 0 => outside cooler.
-    const int32_t diff    = static_cast<int32_t>(outerAvg) - static_cast<int32_t>(innerAvg);
-    const int32_t absDiff = (diff < 0) ? -diff : diff;
-    if (absDiff < diffThresholdC100) {
-        return Advice::kNoChange;
+        diffOpen_ = false;
+    } else {
+        // insideWarmer > 0 => inside warmer than outside (opening cools).
+        const int32_t insideWarmer =
+            static_cast<int32_t>(innerAvg) - static_cast<int32_t>(outerAvg);
+        if (insideWarmer >= diffThresholdC100) {
+            diffOpen_ = true; // opening cools the room by >= N
+        } else if (insideWarmer <= 0) {
+            diffOpen_ = false; // equalized — no benefit left
+        }
+        // 0 < insideWarmer < N: hold previous state (built-in hysteresis band)
     }
 
-    const bool outerCooler = (diff < 0);
-    if (goal == cfg::window_advisor::Goal::kCoolRoom) {
-        // Want to cool: open when it is cooler outside, shut to keep heat out.
-        return outerCooler ? Advice::kOpen : Advice::kClose;
+    // --- vent rule: outdoor-only, fixed 20.0 C trip / 20.5 C clear ---------
+    if (outerAvg == kTempInvalid) {
+        ventOpen_ = false;
+    } else if (outerAvg <= cfg::vent::kVentOpenC100) {
+        ventOpen_ = true; // <= 20.00 C incl. — always worth ventilating
+    } else if (outerAvg > cfg::vent::kVentCloseC100) {
+        ventOpen_ = false; // above 20.50 C — rule off
     }
-    // WarmRoom — want to warm: open when it is warmer outside, shut to keep cold out.
-    return outerCooler ? Advice::kClose : Advice::kOpen;
+    // 20.00 < outer <= 20.50: hold previous state (anti-flap around the trip)
+
+    return current();
+}
+
+void Advisor::reset() {
+    diffOpen_ = false;
+    ventOpen_ = false;
 }
 
 } // namespace window

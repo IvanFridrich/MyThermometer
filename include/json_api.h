@@ -17,11 +17,10 @@ namespace json_api {
 struct CurrentStatus {
     Temperature    innerC100{kTempInvalid};
     Temperature    outerC100{kTempInvalid};
-    window::Advice windowAdvice{window::Advice::kNoChange};
-    uint8_t        windowGoal{0};
+    window::Advice windowAdvice{window::Advice::kClose};
     bool           fire{false};
     bool           sensorFault{false};
-    bool           diffAlarm{false};
+    bool           diffAlarm{false}; // window::Advisor diff rule active
     uint32_t       uptimeS{0};
     uint32_t       freeHeap{0};
     uint32_t       minFreeHeap{0};
@@ -33,7 +32,6 @@ struct CurrentStatus {
     int16_t        fireThrC100{0};
     int16_t        fireHystC100{0};
     int16_t        diffThrC100{0};
-    int16_t        diffHystC100{0};
     uint8_t        contrast{0};
     int16_t        quietFromMin{0}; // window-advice quiet hours, minutes-of-day
     int16_t        quietToMin{0};

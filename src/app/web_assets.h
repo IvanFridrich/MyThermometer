@@ -71,16 +71,9 @@ inline const char kIndexHtml[] PROGMEM = R"WEBRAW(
         <form id="cfgForm">
           <label><input type="checkbox" name="beeper" role="switch" /> Bzučák</label>
           <label><input type="checkbox" name="email" role="switch" /> E-mailové alarmy</label>
-          <label>Cíl
-            <select name="window_goal">
-              <option value="0">Chladit místnost</option>
-              <option value="1">Vytápět místnost</option>
-            </select>
+          <label>Otevřít okno při rozdílu uvnitř − venku ≥ (°C)
+            <input type="number" name="diff_thr" min="0.1" step="0.1" />
           </label>
-          <div class="grid">
-            <label>Práh rozdílu (°C)<input type="number" name="diff_thr" min="0.1" step="0.1" /></label>
-            <label>Hystereze rozdílu (°C)<input type="number" name="diff_hyst" min="0" step="0.1" /></label>
-          </div>
           <div class="grid">
             <label>Práh požáru (°C)<input type="number" name="fire_thr" min="1" step="0.1" /></label>
             <label>Hystereze požáru (°C)<input type="number" name="fire_hyst" min="0" step="0.1" /></label>
@@ -156,8 +149,7 @@ function hhmmToMin(str) {
 
 const ADVICE = {
   open: ["OTEVŘÍT OKNO", "open"],
-  close: ["ZAVŘÍT OKNO", "close"],
-  nochange: ["BEZE ZMĚNY", "nochange"],
+  close: ["OKNO ZAVŘENÉ", "close"],
 };
 
 function renderCurrent(s) {
@@ -165,7 +157,7 @@ function renderCurrent(s) {
   $("outer").textContent = c100(s.outer_c100);
   $("diff").textContent = c100(s.diff_c100);
 
-  const [label, cls] = ADVICE[s.window] || ADVICE.nochange;
+  const [label, cls] = ADVICE[s.window] || ADVICE.close;
   const adv = $("advice");
   adv.textContent = label;
   adv.className = "advice " + cls;
@@ -191,9 +183,7 @@ function renderCurrent(s) {
   if (!f.dataset.loaded) {
     f.beeper.checked = s.beeper;
     f.email.checked = s.email;
-    f.window_goal.value = String(s.window_goal);
     f.diff_thr.value = (s.diff_thr_c100 / 100).toFixed(1);
-    f.diff_hyst.value = (s.diff_hyst_c100 / 100).toFixed(1);
     f.fire_thr.value = (s.fire_thr_c100 / 100).toFixed(1);
     f.fire_hyst.value = (s.fire_hyst_c100 / 100).toFixed(1);
     f.contrast.value = s.contrast;
@@ -283,8 +273,9 @@ async function postForm(url, params) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params).toString(),
   });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  return res;
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || ("HTTP " + res.status));
+  return text;
 }
 
 function wireForms() {
@@ -294,9 +285,7 @@ function wireForms() {
     const params = {
       beeper: f.beeper.checked ? 1 : 0,
       email: f.email.checked ? 1 : 0,
-      window_goal: f.window_goal.value,
       diff_thr_c100: Math.round(parseFloat(f.diff_thr.value) * 100),
-      diff_hyst_c100: Math.round(parseFloat(f.diff_hyst.value) * 100),
       fire_thr_c100: Math.round(parseFloat(f.fire_thr.value) * 100),
       fire_hyst_c100: Math.round(parseFloat(f.fire_hyst.value) * 100),
       contrast: f.contrast.value,
@@ -304,8 +293,11 @@ function wireForms() {
       quiet_to_min: hhmmToMin(f.quiet_to.value),
     };
     try {
-      await postForm("/api/config", params);
-      $("actionMsg").textContent = "Konfigurace uložena.";
+      const text = await postForm("/api/config", params);
+      $("actionMsg").textContent =
+        text === "applied-not-saved"
+          ? "Použito, ale uložení do paměti selhalo — po restartu se ztratí."
+          : "Konfigurace uložena.";
     } catch (e) {
       $("actionMsg").textContent = "Uložení selhalo: " + e;
     }

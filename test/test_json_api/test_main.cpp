@@ -20,7 +20,6 @@ json_api::CurrentStatus sampleStatus() {
     s.innerC100     = 2345;
     s.outerC100     = 2100;
     s.windowAdvice  = window::Advice::kOpen;
-    s.windowGoal    = 0;
     s.fire          = false;
     s.sensorFault   = false;
     s.diffAlarm     = false;
@@ -35,7 +34,6 @@ json_api::CurrentStatus sampleStatus() {
     s.fireThrC100   = 4500;
     s.fireHystC100  = 200;
     s.diffThrC100   = 200;
-    s.diffHystC100  = 50;
     s.contrast      = 128;
     s.quietFromMin  = 1320; // 22:00
     s.quietToMin    = 540;  // 09:00
@@ -49,11 +47,11 @@ TEST_CASE("/api/current serializes exactly and returns the written length") {
     const size_t      n = json_api::serializeCurrent(sampleStatus(), buf, sizeof(buf));
     const std::string expected =
         "{\"inner_c100\":2345,\"outer_c100\":2100,\"diff_c100\":-245,\"window\":\"open\","
-        "\"window_goal\":0,\"fire\":false,\"sensor_fault\":false,\"diff_alarm\":false,"
+        "\"fire\":false,\"sensor_fault\":false,\"diff_alarm\":false,"
         "\"uptime_s\":3600,\"free_heap\":150000,\"min_free_heap\":140000,\"rssi\":-67,"
         "\"inner_rom\":\"0x28FF001122334455\",\"outer_rom\":\"0x28AA00AABBCCDDEE\","
         "\"beeper\":true,\"email\":true,\"fire_thr_c100\":4500,\"fire_hyst_c100\":200,"
-        "\"diff_thr_c100\":200,\"diff_hyst_c100\":50,\"contrast\":128,"
+        "\"diff_thr_c100\":200,\"contrast\":128,"
         "\"quiet_from_min\":1320,\"quiet_to_min\":540,\"tod_min\":755}";
     CHECK(std::string(buf) == expected);
     CHECK(n == expected.size());
@@ -78,10 +76,6 @@ TEST_CASE("/api/current window advice maps to the expected strings") {
     s.windowAdvice = window::Advice::kClose;
     json_api::serializeCurrent(s, buf, sizeof(buf));
     CHECK(std::string(buf).find("\"window\":\"close\"") != std::string::npos);
-
-    s.windowAdvice = window::Advice::kNoChange;
-    json_api::serializeCurrent(s, buf, sizeof(buf));
-    CHECK(std::string(buf).find("\"window\":\"nochange\"") != std::string::npos);
 }
 
 TEST_CASE("/api/current emits null for tod_min when the clock is unsynced") {

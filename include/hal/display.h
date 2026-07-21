@@ -20,7 +20,7 @@ struct DisplayFrame {
     Temperature    innerC100{kTempInvalid}; // centi-degC; kTempInvalid -> "--.-"
     Temperature    outerC100{kTempInvalid};
     DisplayStatus  status{DisplayStatus::kOuterTemp};
-    window::Advice advice{window::Advice::kNoChange}; // window icon (open/closed/dimmed)
+    window::Advice advice{window::Advice::kClose}; // window icon (open/closed)
 
     bool operator==(const DisplayFrame& o) const {
         return innerC100 == o.innerC100 && outerC100 == o.outerC100 && status == o.status &&

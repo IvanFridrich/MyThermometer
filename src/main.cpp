@@ -72,6 +72,7 @@ Mailer        g_mailer(SMTP_HOST, cfg::email::kSmtpPort, SMTP_USER, SMTP_PASS, S
 ConfigModel                                   g_config    = ConfigModel::defaults();
 ConfigModel                                   g_webConfig = ConfigModel::defaults();
 AlarmState                                    g_alarm(g_config); // holds g_config by reference
+window::Advisor                               g_advisor;         // Core-1-owned window advice
 HistoryBuffer                                 g_history;
 EventLog                                      g_log;
 email_policy::EmailPolicy                     g_email;
@@ -138,14 +139,14 @@ bool g_mailFirePending   = false;
 bool g_mailSensorPending = false;
 
 // NVS keys (§6.4).
+// ("diff_hyst" and "win_goal" keys were retired with the window-advice
+// simplification; stale values in flash are simply ignored.)
 constexpr char kKeyBeeper[]    = "beeper";
 constexpr char kKeyDiffThr[]   = "diff_thr";
-constexpr char kKeyDiffHyst[]  = "diff_hyst";
 constexpr char kKeyFireThr[]   = "fire_thr";
 constexpr char kKeyFireHyst[]  = "fire_hyst";
 constexpr char kKeyContrast[]  = "contrast";
 constexpr char kKeyEmail[]     = "email";
-constexpr char kKeyGoal[]      = "win_goal";
 constexpr char kKeyQuietFrom[] = "quiet_from";
 constexpr char kKeyQuietTo[]   = "quiet_to";
 
@@ -463,12 +464,10 @@ void loadConfig() {
     }
     g_config.beeperEnabled      = g_nvs.getBool(kKeyBeeper, g_config.beeperEnabled).value();
     g_config.diffThresholdC100  = g_nvs.getInt16(kKeyDiffThr, g_config.diffThresholdC100).value();
-    g_config.diffHysteresisC100 = g_nvs.getInt16(kKeyDiffHyst, g_config.diffHysteresisC100).value();
     g_config.fireThrC100        = g_nvs.getInt16(kKeyFireThr, g_config.fireThrC100).value();
     g_config.fireHysteresisC100 = g_nvs.getInt16(kKeyFireHyst, g_config.fireHysteresisC100).value();
     g_config.lcdContrastPwm     = g_nvs.getUint8(kKeyContrast, g_config.lcdContrastPwm).value();
     g_config.emailEnabled       = g_nvs.getBool(kKeyEmail, g_config.emailEnabled).value();
-    g_config.windowGoal         = g_nvs.getUint8(kKeyGoal, g_config.windowGoal).value();
     g_config.quietFromMin       = g_nvs.getInt16(kKeyQuietFrom, g_config.quietFromMin).value();
     g_config.quietToMin         = g_nvs.getInt16(kKeyQuietTo, g_config.quietToMin).value();
     if (!g_config.validate()) {
@@ -478,18 +477,25 @@ void loadConfig() {
     g_webConfig = g_config; // both copies start identical (boot: no tasks yet)
 }
 
-// Persist the authoritative (web-edited) config.
-void saveConfig(const ConfigModel& c) {
-    g_nvs.putBool(kKeyBeeper, c.beeperEnabled);
-    g_nvs.putInt16(kKeyDiffThr, c.diffThresholdC100);
-    g_nvs.putInt16(kKeyDiffHyst, c.diffHysteresisC100);
-    g_nvs.putInt16(kKeyFireThr, c.fireThrC100);
-    g_nvs.putInt16(kKeyFireHyst, c.fireHysteresisC100);
-    g_nvs.putUint8(kKeyContrast, c.lcdContrastPwm);
-    g_nvs.putBool(kKeyEmail, c.emailEnabled);
-    g_nvs.putUint8(kKeyGoal, c.windowGoal);
-    g_nvs.putInt16(kKeyQuietFrom, c.quietFromMin);
-    g_nvs.putInt16(kKeyQuietTo, c.quietToMin);
+// Persist the authoritative (web-edited) config. Returns false if ANY key
+// failed to write (e.g. NVS not open, flash error) so the caller can report
+// a real failure instead of a false-positive "saved" — previously every
+// put() result was discarded, so a failed write looked identical to success
+// on the web UI (D19 fix: "settings don't stick" bug reports).
+bool saveConfig(const ConfigModel& c) {
+    bool ok = true;
+    ok &= g_nvs.putBool(kKeyBeeper, c.beeperEnabled).isOk();
+    ok &= g_nvs.putInt16(kKeyDiffThr, c.diffThresholdC100).isOk();
+    ok &= g_nvs.putInt16(kKeyFireThr, c.fireThrC100).isOk();
+    ok &= g_nvs.putInt16(kKeyFireHyst, c.fireHysteresisC100).isOk();
+    ok &= g_nvs.putUint8(kKeyContrast, c.lcdContrastPwm).isOk();
+    ok &= g_nvs.putBool(kKeyEmail, c.emailEnabled).isOk();
+    ok &= g_nvs.putInt16(kKeyQuietFrom, c.quietFromMin).isOk();
+    ok &= g_nvs.putInt16(kKeyQuietTo, c.quietToMin).isOk();
+    if (!ok) {
+        logLine(cfg::log::Level::kError, "NVS", "saveConfig: one or more keys failed to write");
+    }
+    return ok;
 }
 
 // Accumulate window event flags from either core (guarded).
@@ -515,13 +521,35 @@ json_api::CurrentStatus snapshotCopy() {
 // HTTP handlers (Core 0). Registered as captureless lambdas using file globals.
 // ---------------------------------------------------------------------------
 void handleIndex() {
+    // no-store: app.js has changed shape repeatedly across firmware updates
+    // (new config fields, new actions); a browser-cached copy after an OTA
+    // update would silently desync from the server's actual API contract.
+    g_server.sendHeader("Cache-Control", "no-store");
     g_server.send_P(200, "text/html", web_assets::kIndexHtml);
 }
 void handleAppJs() {
+    g_server.sendHeader("Cache-Control", "no-store");
     g_server.send_P(200, "application/javascript", web_assets::kAppJs);
 }
 void handleApiCurrent() {
-    const json_api::CurrentStatus s = snapshotCopy();
+    json_api::CurrentStatus s = snapshotCopy();
+    // Echo the just-saved config from g_webConfig, not from the snapshot's
+    // g_config-derived copy: g_config only latches g_webConfig once per
+    // Core-1 measurement cycle (up to cfg::sample::kSamplePeriodMs = 60 s).
+    // Without this, saving a setting and immediately reloading the page can
+    // show the pre-save value for up to a minute (reported: quiet hours
+    // "don't stick"). The alarm/advisor logic is unaffected — it still reads
+    // the atomically-latched g_config, only this web-facing echo changes.
+    taskENTER_CRITICAL(&g_mux);
+    s.beeperEnabled = g_webConfig.beeperEnabled;
+    s.emailEnabled  = g_webConfig.emailEnabled;
+    s.fireThrC100   = g_webConfig.fireThrC100;
+    s.fireHystC100  = g_webConfig.fireHysteresisC100;
+    s.diffThrC100   = g_webConfig.diffThresholdC100;
+    s.contrast      = g_webConfig.lcdContrastPwm;
+    s.quietFromMin  = g_webConfig.quietFromMin;
+    s.quietToMin    = g_webConfig.quietToMin;
+    taskEXIT_CRITICAL(&g_mux);
     const size_t n = json_api::serializeCurrent(s, g_jsonCurrent, sizeof(g_jsonCurrent));
     if (n == 0) {
         logLine(cfg::log::Level::kError, "WEB", "serializeCurrent: buffer overflow");
@@ -559,11 +587,8 @@ void handleApiConfig() {
     ConfigModel next   = g_webConfig;
     next.beeperEnabled = argClamped(kKeyBeeper, next.beeperEnabled ? 1 : 0, 0, 1) != 0;
     next.emailEnabled  = argClamped("email", next.emailEnabled ? 1 : 0, 0, 1) != 0;
-    next.windowGoal    = static_cast<uint8_t>(argClamped("window_goal", next.windowGoal, 0, 1));
     next.diffThresholdC100 =
         static_cast<int16_t>(argClamped("diff_thr_c100", next.diffThresholdC100, 1, 30000));
-    next.diffHysteresisC100 =
-        static_cast<int16_t>(argClamped("diff_hyst_c100", next.diffHysteresisC100, 0, 30000));
     next.fireThrC100 =
         static_cast<int16_t>(argClamped("fire_thr_c100", next.fireThrC100, 1, 30000));
     next.fireHysteresisC100 =
@@ -579,11 +604,16 @@ void handleApiConfig() {
     taskENTER_CRITICAL(&g_mux);
     g_webConfig = next; // Core 1 latches this into g_config next cycle
     taskEXIT_CRITICAL(&g_mux);
-    saveConfig(next);
+    // Live behavior always applies (g_webConfig above), even if the flash
+    // write below fails — the device should keep working with the new
+    // values for this power cycle; only persistence across reboot is at risk.
+    const bool saved = saveConfig(next);
     // Core 0 caller; setBrightness touches only LEDC — safe cross-core.
     g_display.setBrightness(next.lcdContrastPwm);
     logLine(cfg::log::Level::kInfo, "WEB", "config updated");
-    g_server.send(200, "text/plain", "ok");
+    // Distinct body so the web UI can tell the user persistence actually
+    // failed, instead of showing a false-positive "saved".
+    g_server.send(200, "text/plain", saved ? "ok" : "applied-not-saved");
 }
 
 void handleAction() {
@@ -716,9 +746,10 @@ void measurementCycle(uint32_t nowMs) {
         g_beep.playFire(nowMs); // keep sounding while the fire condition holds (FR-08)
     }
 
-    const auto advice = window::advise(innerAvgAlarm, outerAvgAlarm,
-                                       static_cast<cfg::window_advisor::Goal>(g_config.windowGoal),
-                                       g_config.diffThresholdC100);
+    // Window advice: stateful (diff rule N->0 + vent rule <= 20 C, see
+    // window_advice.h). Runs on the gated averages, so it stays "closed"
+    // until both 10-min windows are fully populated after boot.
+    const auto advice = g_advisor.update(innerAvgAlarm, outerAvgAlarm, g_config.diffThresholdC100);
 
     // Local time-of-day in minutes, or -1 if NTP has not synced yet.
     const int16_t todMin = localTimeOfDayMin();
@@ -748,10 +779,9 @@ void measurementCycle(uint32_t nowMs) {
     s.innerC100     = innerAvg;
     s.outerC100     = outerAvg;
     s.windowAdvice  = advice;
-    s.windowGoal    = g_config.windowGoal;
     s.fire          = g_alarm.isFire();
     s.sensorFault   = g_alarm.isSensorFault();
-    s.diffAlarm     = g_alarm.isDiff();
+    s.diffAlarm     = g_advisor.diffActive(); // DIFF flag mirrors the advice diff rule
     s.uptimeS       = nowMs / 1000UL;
     s.freeHeap      = g_sys.freeHeap();
     s.minFreeHeap   = g_sys.minFreeHeap();
@@ -761,7 +791,6 @@ void measurementCycle(uint32_t nowMs) {
     s.fireThrC100   = g_config.fireThrC100;
     s.fireHystC100  = g_config.fireHysteresisC100;
     s.diffThrC100   = g_config.diffThresholdC100;
-    s.diffHystC100  = g_config.diffHysteresisC100;
     s.contrast      = g_config.lcdContrastPwm;
     s.quietFromMin  = g_config.quietFromMin;
     s.quietToMin    = g_config.quietToMin;
@@ -911,7 +940,7 @@ static const char* buildStatusBody(const json_api::CurrentStatus& s) {
                "Venku:   %s\r\n"
                "Požár: %s  Čidlo: %s  Rozdíl: %s\r\n\r\n"
                "Práh požáru:  %.1f °C / hystereze %.1f °C\r\n"
-               "Práh rozdílu: %.1f °C / hystereze %.1f °C\r\n\r\n"
+               "Práh rozdílu: %.1f °C\r\n\r\n"
                "Doba běhu: %lu h %02lu min\r\n"
                "IP:        %s\r\n"
                "Signál:    %d dBm\r\n"
@@ -919,8 +948,8 @@ static const char* buildStatusBody(const json_api::CurrentStatus& s) {
                "E-mail: %s  Bzučák: %s\r\n",
         tIn, tOut, s.fire ? "ANO" : "ne", s.sensorFault ? "ANO" : "ne", s.diffAlarm ? "ANO" : "ne",
         s.fireThrC100 / 100.0, s.fireHystC100 / 100.0, s.diffThrC100 / 100.0,
-        s.diffHystC100 / 100.0, static_cast<unsigned long>(upH), static_cast<unsigned long>(upM),
-        ip, static_cast<int>(s.rssi), static_cast<unsigned long>(s.freeHeap),
+        static_cast<unsigned long>(upH), static_cast<unsigned long>(upM), ip,
+        static_cast<int>(s.rssi), static_cast<unsigned long>(s.freeHeap),
         s.emailEnabled ? "zapnuto" : "vypnuto", s.beeperEnabled ? "zapnuto" : "vypnuto");
     if (n < 0) {
         g_emailBody[0] = '\0';
